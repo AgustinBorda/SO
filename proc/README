@@ -1,0 +1,112 @@
+USER PROCESSES SUPPORT
+
+This project adds support for running user processes.
+
+BUILDING AND RUNNING THIS PROJECT
+
+To build this setup project run "make". 
+On non-x86 or non-ELF machines (like OS X, even on x86), you
+will need to install a cross-compiler gcc suite capable of producing
+x86 ELF binaries (see https://pdos.csail.mit.edu/6.828/).
+Then run "make TOOLPREFIX=i386-elf-". 
+Install the QEMU PC simulator and run "make qemu".
+
+You should see messages "cpu n: starting" (with n in {0,1}) and then lines
+showing the number if ticks every 100 clock interrupts.
+
+PROJECT OVERVIEW
+
+In this project we have added several files for processes support.
+Processes are represented by a "struct proc" defined in "proc.h".
+
+Process handling is implemented in "proc.c". The system have a (static) table 
+of "struct proc".
+
+A process p have the following virtual memory layout:
+
+0x00000000  .-------------. 
+            |    code     |
+            |   (text)    |
+            +-------------+
+            |   static    |
+            |    data     |
+            +-------------+
+            |    stack    | <-- stack used when CPU is executing process code
+p->sz ----> '-------------'
+
+This means all processes have to be linked with a start virtual address 0
+(standard linking do that).
+
+FIRST PROCESS
+
+The main function create an initial process by calling "userinit()" defined in
+"proc.c".
+
+Function "userinit()" calls "allocproc()" which find a unused entry in process
+table and setup its execution environment by creating a stack used when the
+process become interrupted. Kernel code ("trap()" for example) in an process
+interrupt context will use this stack.
+
+Then, "userinit()" setup a memory map pointed by "p->pgdir" (see "setupkvm()")
+to use by process and calls to "inituvm()", which:
+
+1. Allocate a page and copy to it the code and data of first program to launch
+   (initcode), which is linked as a data with address "_binary_initcode_start"
+   (we instruct the linker to do that).
+2. Complete the memory map mapping user space memory addresses (0..p->sz).
+3. Setup a trapframe (in kernel mode stack) to simulate process was interrupted
+at beginning of "initcode" (first instruction, at address 0).
+4. Mark the process as RUNNABLE, so it will be picked by scheduler().
+
+The saved context and trapframe setup done by allocproc() and userinit() form an
+faked "interrupt state" and a "saved context" simulating this process was
+previously interrupted and then yield de CPU (switching to scheduler context).
+
+A CPU running in scheduler will find a RUNNABLE process and "switch" to it by
+saving the scheduler context (cpu registers content) in scheduler stack and
+restoring the saved context of process (which is on p->context in process kernel
+mode stack).
+
+   p->kstack  --> +---------------+
+                  |               |
+                  |               |
+   p->context --> +---------------+
+                  |      edi      |
+                  +---------------+
+                  |      esi      |
+                  +---------------+
+                  |      ebx      |
+                  +---------------+
+                  |      ebp      |
+                  +---------------+
+                  | eip = trapret |
+   p->tf -------> +---------------+
+                  |    general    |
+                  |    purpose    |
+                  |   registers   |
+                  |      ...      |
+                  |    eip = 0    | \
+                  |      cs       |  |
+                  |     eflags    |  | pushed by CPU on interrupt
+                  |      esp      |  |
+                  |      ss       |  |
+                  +---------------+ /
+
+With this layout, when "scheduler()" calls "swtch(&(c->scheduler), p->context)",
+it save current CPU state (context) in scheduler stack, change stack (value of
+ESP) to p->context and restore (pop) values to CPU registers, jumping to
+"trapret" (see trapasm.S) witch restore values of other CPU registers and return
+from interrupt (iret).
+The "iret" instruction "pops" EIP, CS,EFLAGS, ESP and SS register values into
+the corresponding registers, causing a "jump" to first instrucción at address 0
+(value of eip in trapframe) of "initcode".
+
+INITCODE PROGRAM
+
+The "initcode.S" assembly program just make a system call to 'exec("/init")'
+and then do an "exit()" syscall.
+
+The "exec(path)" syscall load the user program from a "on memory" filesystem
+which contains user programs attached as binary data at end of kernel image.
+See file "exec.c".
+

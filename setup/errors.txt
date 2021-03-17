@@ -1,0 +1,5 @@
+x86_64-elf-ld: main.o: in function `main':
+/Users/marcelo/CursosDictados/SistemasOperativos-UNRC/Taller/xv6-projects/setup/main.c:27: undefined reference to `consoleinit'
+x86_64-elf-ld: vm.o: in function `setupkvm':
+/Users/marcelo/CursosDictados/SistemasOperativos-UNRC/Taller/xv6-projects/setup/vm.c:132: undefined reference to `freevm'
+make: *** [kernel] Error 1

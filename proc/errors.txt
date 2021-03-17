@@ -1,0 +1,11 @@
+thread.c: In function ‘sched’:
+thread.c:115:24: error: implicit declaration of function ‘mythread’ [-Werror=implicit-function-declaration]
+  115 |     struct thread *t = mythread();
+      |                        ^~~~~~~~
+thread.c:115:24: error: initialization of ‘struct thread *’ from ‘int’ makes pointer from integer without a cast [-Werror=int-conversion]
+At top level:
+thread.c:44:23: error: ‘thread_create’ defined but not used [-Werror=unused-function]
+   44 | static struct thread* thread_create(thread_function *fn)
+      |                       ^~~~~~~~~~~~~
+cc1: all warnings being treated as errors
+make: *** [thread.o] Error 1

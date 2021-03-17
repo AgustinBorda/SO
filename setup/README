@@ -1,0 +1,72 @@
+KERNEL SETUP
+
+This project setup a minimal kernel with support for a SMP x86 architecture,
+running in kernel mode (cpu ring 0) with memory protection (paging) enabled.
+
+BUILDING AND RUNNING THIS PROJECT
+
+To build this setup project run "make". 
+On non-x86 or non-ELF machines (like OS X, even on x86), you
+will need to install a cross-compiler gcc suite capable of producing
+x86 ELF binaries (see https://pdos.csail.mit.edu/6.828/).
+Then run "make TOOLPREFIX=i386-elf-". 
+Install the QEMU PC simulator and run "make qemu".
+
+You should see messages "cpu n: starting" (with n in {0,1}) and then lines
+showing the number if ticks every 100 clock interrupts.
+
+PROJECT OVERVIEW
+
+The goal of this project is to setup an initial environment running code for
+each CPU with paging (memory protection) enabled.
+
+1. The boot loader is built from "bootasm.S" and "bootmain.c":
+   "bootmain()" reads the kernel binary (ELF) loadable parts (code and data)
+   from disk and transfer control to "entry()" (defined in "entry.S").
+2. "entry()" setup paging for kernel code + data and calls to "main()" in
+   "main.c".
+3. "main()" initalize several subsistems:
+   - The "physical page allocator" calling "kinit1()" defined in "vm.c"
+   - Enable paging, setting an initial directory page ("kpgdir") for kernel
+   - Detect other CPUs
+   - Interrupts (Programmable Interrupt Controller) and timer
+   - Define segment descriptors (segmentation)
+   - Console
+   - Interrupts vector
+   - Start other processors, setting a stack for each CPU
+4. Each processor run "mpmain()"
+5. "mpmain()" shows "cpu n: starting" message, enable interrupts and enters in
+   an infinite loop
+
+In this point each CPU is running the infinite loop and it is interrupted by
+hardware clock periodically.
+
+The interrupts vector was defined pointing to interrupt service routines (ISR)
+defined in "vectors.S".
+
+When an interrupt ocurrs, the CPU push on its stack contents of registers SS, ESP,
+CS, EIP and EFLAGS and jumps to corresponding ISR. 
+Each ISR push interrupt number and call "alltraps()" which push the contents of
+rest of registers, creating the rest of the "trapframe" (see "struct trapframe"
+in x86.h"). Then it calls "trap(tf)" defined in "trap.c".
+
+In this way, all interrupts are handled in "trap(struct trapframe * tf)".
+
+MEMORY SETUP
+
+The bootloader loads the kernel image at physical address 0x00100000 (1MB) to ensure
+there is physical memory.
+
+The kernel code (and data) is linked with addresses > KERNBASE (KERNBASE =
+0x80000000 = 2GB, see memlayout.h), so every symbol (functions and variables)
+will have high (virtual) memory addresses.
+The range of virtual addresses [0, KERNBASE] is reserved for user processes.
+
+So, we need to map virtual addresses to physical addresses. It is done in
+virtual memory module "vm.c" (see kmap[] array).
+This setup (see "setupkvm()") enables paging to map virtual kernel addresses to
+physical addreses creating a "page directory" which define a such mapping. 
+
+The page directory created for kernel code is pointed by the global variable
+"kpgdir".
+

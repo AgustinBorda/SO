@@ -16,6 +16,17 @@ showing the number if ticks every 100 clock interrupts.
 
 PROJECT OVERVIEW
 
+We not have a filesystem (yet), so we have appended user programs at end of
+kernel image (see 'kernel' target in Makefile) by using "-b binary files"
+options in 'ld' command.
+For each file 'f' included by using the "-b binary f1 f2 ...", the GNU ld
+define symbols "_binary_f_start", "_binary_f_end" and "_binary_f_size".
+The first two of them represent memory address of begin and end of content, so
+we can copy that content. 
+The "_binary_f_size" value can be cast to an integer value.
+See the function "userinit()" in proc.c file. This function "copy" the
+"initcode" user program contents to create the first process.
+
 In this project we have added several files for processes support.
 Processes are represented by a "struct proc" defined in "proc.h".
 

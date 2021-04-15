@@ -110,7 +110,7 @@ clean:
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
 	*.o *.d *.asm *.sym vectors.S bootblock entryother \
 	initcode initcode.out kernel xv6.img .gdbinit \
-	user\*.o user/*.asm user/*.sym $(UPROGS)
+	user/*.o user/*.d user/*.asm user/*.sym $(UPROGS)
 
 QEMU = qemu-system-i386
 CPUS = 2

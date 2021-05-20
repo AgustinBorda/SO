@@ -44,12 +44,13 @@ dequeue(struct queue* level)
   else{
     struct proc* p = level->head;
     level->head = p -> next;
+    p->next = 0;
     // If the next process of the head is 0 (null)
     // the queue has only 1 element
-    if(p -> next == 0){
+    if(level->head == 0)
       level->last = 0;
-    }
     if(p -> state != RUNNABLE){
+      mlfdump();
       panic("non-runnable process in the queues\n");
     }
     return p;
@@ -141,6 +142,7 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  p->level = 0;
 
   release(&ptable.lock);
 
@@ -561,6 +563,16 @@ kill(int pid)
   return -1;
 }
 
+int
+set_priority(int priority)
+{
+  if(priority >= 0 && priority < MLFLEVELS) {
+    myproc() -> level = priority;
+    return 0;
+  }
+  return -1;
+}
+
 //PAGEBREAK: 36
 // Print a process listing to console.  For debugging.
 // Runs when user types ^P on console.
@@ -588,7 +600,7 @@ procdump(void)
       state = states[p->state];
     else
       state = "???";
-    cprintf("%d %s %s", p->pid, state, p->name);
+    cprintf("%d %s %s %d", p->pid, state, p->name, p->level);
     if(p->state == SLEEPING){
       getcallerpcs((uint*)p->context->ebp+2, pc);
       for(i=0; i<10 && pc[i] != 0; i++)
@@ -597,3 +609,32 @@ procdump(void)
     cprintf("\n");
   }
 }
+
+
+void
+mlfdump()
+{
+  static char *states[] = {
+  [UNUSED]    "unused",
+  [EMBRYO]    "embryo",
+  [SLEEPING]  "sleep ",
+  [RUNNABLE]  "runble",
+  [RUNNING]   "run   ",
+  [ZOMBIE]    "zombie"
+  };
+  int i;
+  for(i=0;i<MLFLEVELS;i++){
+    cprintf("Level: %d\n", i);
+    struct proc* curr = ptable.level[i].head;
+    while(curr -> next) {
+      cprintf("%d %s", curr->pid, states[curr->state]);
+      curr = curr -> next;
+    }
+    cprintf("\n");
+  }
+}
+
+
+
+
+

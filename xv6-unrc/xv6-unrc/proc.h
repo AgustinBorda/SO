@@ -38,6 +38,7 @@ enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 struct proc {
   ushort remainingticks;       // Remaining ticks of this process in cpu (if in cpu)
   ushort level;                // The level of the process in MLF
+  uint timerunnable;           // Time when the process became runnable
   struct proc *next;           // Next process in MLF
   uint sz;                     // Size of process memory (bytes)
   pde_t* pgdir;                // Page table

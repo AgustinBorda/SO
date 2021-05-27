@@ -6,8 +6,10 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
-
+// Define if a queue is empty
 #define isempty(queue) (queue)->head == 0
+// Define if a process is old
+#define isold(proc) ((ticks - ((proc) -> timerunnable)) >= OLDTICKS)
 
 // MLF level structure
 struct queue {
@@ -65,6 +67,59 @@ struct {
   struct proc proc[NPROC];
   struct queue level[MLFLEVELS];
 } ptable;
+
+
+// Elevate a process a level in the MLF
+void
+elevateprocess(struct proc* prevp, struct proc* p)
+{
+  if(prevp)
+    prevp -> next = p -> next;
+  if((p -> level) > 0) 
+    (p -> level)--;
+  makerunnable(&ptable.level[p -> level], p);
+}
+
+// Identifies all the old process in a level
+// and moves them to a bigger level of priority
+void
+agelevel(struct queue* level)
+{
+  if(isempty(level))
+    return;
+  struct proc* proc = level -> head;
+  while(isold(proc)){
+    level -> head = proc -> next;
+    elevateprocess(0, proc);
+    proc = level -> head;
+  }
+  if(!isempty(level)){
+    ushort nextisold = 0;
+    while(proc -> next){
+      if(isold(proc -> next)){
+        nextisold = 1;
+        elevateprocess(proc, proc -> next);
+      }
+      if(!nextisold){
+        proc = proc -> next;
+      }
+      nextisold = 0; 
+    }
+  }
+  else{
+    level -> last = 0;
+  }
+}
+
+// Ages all the levels of the MLF
+void
+agingmlf() 
+{
+  for(ushort i = 1; i < MLFLEVELS; i++){
+    agelevel(&ptable.level[i]);
+  }
+}
+
 
 static struct proc *initproc;
 
@@ -143,6 +198,7 @@ found:
   p->state = EMBRYO;
   p->pid = nextpid++;
   p->level = 0;
+  p->timerunnable = ticks;
 
   release(&ptable.lock);
 
@@ -270,6 +326,7 @@ fork(void)
   acquire(&ptable.lock);
 
   np-> level = curproc -> level;
+  np -> timerunnable = ticks;
   makerunnable(&ptable.level[np -> level], np);
 
   release(&ptable.lock);
@@ -447,6 +504,7 @@ yield(void)
   // max priority, stays were it is.
   if(myproc() -> level >0)
     (myproc() -> level)++;
+  myproc() -> timerunnable = ticks;
   makerunnable(&ptable.level[myproc() -> level], myproc());
   sched();
   release(&ptable.lock);
@@ -524,6 +582,7 @@ wakeup1(void *chan)
     if(p->state == SLEEPING && p->chan == chan){
       if(p -> level == MLFLEVELS -1)  
         p -> level--;
+      p -> timerunnable = ticks;
       makerunnable(&ptable.level[p ->level], p);
     }
       
@@ -553,6 +612,7 @@ kill(int pid)
       // Wake process from sleep if necessary.
       if(p->state == SLEEPING) {
         p->level = 0;
+        p -> timerunnable = ticks;
         makerunnable(&ptable.level[p -> level], p);
       }
       release(&ptable.lock);
@@ -627,14 +687,12 @@ mlfdump()
     cprintf("Level: %d\n", i);
     struct proc* curr = ptable.level[i].head;
     while(curr -> next) {
-      cprintf("%d %s", curr->pid, states[curr->state]);
+      cprintf("PID: %d, STATE: %s, NAME: %s", curr->pid, states[curr->state], curr->name);
       curr = curr -> next;
     }
     cprintf("\n");
   }
 }
-
-
-
+ 
 
 

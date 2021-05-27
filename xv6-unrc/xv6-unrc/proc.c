@@ -22,6 +22,7 @@ struct queue {
 void
 makerunnable(struct queue* level, struct proc* proc)
 { 
+  proc -> timerunnable = ticks;
   proc -> state = RUNNABLE;
   if(isempty(level)){
     level->head = proc;
@@ -198,7 +199,6 @@ found:
   p->state = EMBRYO;
   p->pid = nextpid++;
   p->level = 0;
-  p->timerunnable = ticks;
 
   release(&ptable.lock);
 
@@ -326,7 +326,6 @@ fork(void)
   acquire(&ptable.lock);
 
   np-> level = curproc -> level;
-  np -> timerunnable = ticks;
   makerunnable(&ptable.level[np -> level], np);
 
   release(&ptable.lock);
@@ -504,7 +503,6 @@ yield(void)
   // max priority, stays were it is.
   if(myproc() -> level >0)
     (myproc() -> level)++;
-  myproc() -> timerunnable = ticks;
   makerunnable(&ptable.level[myproc() -> level], myproc());
   sched();
   release(&ptable.lock);
@@ -582,7 +580,6 @@ wakeup1(void *chan)
     if(p->state == SLEEPING && p->chan == chan){
       if(p -> level == MLFLEVELS -1)  
         p -> level--;
-      p -> timerunnable = ticks;
       makerunnable(&ptable.level[p ->level], p);
     }
       
@@ -612,7 +609,6 @@ kill(int pid)
       // Wake process from sleep if necessary.
       if(p->state == SLEEPING) {
         p->level = 0;
-        p -> timerunnable = ticks;
         makerunnable(&ptable.level[p -> level], p);
       }
       release(&ptable.lock);

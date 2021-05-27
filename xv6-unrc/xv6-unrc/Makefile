@@ -171,6 +171,7 @@ UPROGS=\
 	_cat\
 	_echo\
 	_forktest\
+	_forkagingtest\
 	_grep\
 	_init\
 	_kill\

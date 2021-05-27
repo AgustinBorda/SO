@@ -76,7 +76,7 @@ elevateprocess(struct proc* prevp, struct proc* p)
 {
   if(prevp)
     prevp -> next = p -> next;
-  if((p -> level) > 0) 
+  if((p -> level) > 0)
     (p -> level)--;
   makerunnable(&ptable.level[p -> level], p);
 }
@@ -91,6 +91,7 @@ agelevel(struct queue* level)
   struct proc* proc = level -> head;
   while(isold(proc)){
     level -> head = proc -> next;
+    cprintf("envegecio\n");
     elevateprocess(0, proc);
     proc = level -> head;
   }
@@ -99,6 +100,7 @@ agelevel(struct queue* level)
     while(proc -> next){
       if(isold(proc -> next)){
         nextisold = 1;
+	cprintf("envegecio\n");
         elevateprocess(proc, proc -> next);
       }
       if(!nextisold){

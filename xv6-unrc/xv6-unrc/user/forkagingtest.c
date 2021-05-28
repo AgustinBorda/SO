@@ -8,22 +8,41 @@
 #define N  1000
 
 
+
 void
 forkagingtest(void)
 {
   int n, pid;
   
     
-  for(n=0; n<N; n++){
+  printf(1, "fork aging test\n");
+  n = fork();
+  if (n) {
     pid = fork();
-    if (n == 3)
-    	set_priority(3);
-    if(pid < 0)
-      break;    
-    if(pid == 0)
+    if (pid) {
+      set_priority(3);
+      sleep(10);
+      set_priority(3);
+      printf(1, "fork aging test OK\n");
+      kill(n);
+      kill(pid);
+      wait();
+      wait();
       exit();
+    }
+    else {
+      set_priority(0);
+      for (;;) {
+        set_priority(0);
+      }
+    }
   }
-  
+  else {
+    set_priority(0);
+    for (;;) {
+      set_priority(0);
+    }
+  } 
 }
 
 int

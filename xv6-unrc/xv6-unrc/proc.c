@@ -22,16 +22,18 @@ struct queue {
 void
 makerunnable(struct queue* level, struct proc* proc)
 { 
-  proc -> timerunnable = ticks;
-  proc -> state = RUNNABLE;
-  if(isempty(level)){
+  proc->timerunnable = ticks;
+  proc->state = RUNNABLE;
+
+  if (isempty(level)) {
     level->head = proc;
     level->last = proc; 
   }
-  else{
-    (level->last) -> next = proc;
+  else {
+    (level->last)->next = proc;
     level->last = proc;   
   }
+  proc->next = 0; 
 }
 
 
@@ -41,18 +43,18 @@ makerunnable(struct queue* level, struct proc* proc)
 struct proc*
 dequeue(struct queue* level)
 {
-  if(isempty(level)){
+  if (isempty(level)) {
     panic("attempted to get a process from empty queue\n");
   }
-  else{
+  else {
     struct proc* p = level->head;
     level->head = p -> next;
     p->next = 0;
     // If the next process of the head is 0 (null)
     // the queue has only 1 element
-    if(level->head == 0)
+    if (level->head == 0)
       level->last = 0;
-    if(p -> state != RUNNABLE){
+    if (p->state != RUNNABLE){
       mlfdump();
       panic("non-runnable process in the queues\n");
     }
@@ -69,48 +71,43 @@ struct {
   struct queue level[MLFLEVELS];
 } ptable;
 
-
-// Elevate a process a level in the MLF
 void
-elevateprocess(struct proc* prevp, struct proc* p)
+elevateoldprocess(struct proc* prev, struct proc* p)
 {
-  if(prevp)
-    prevp -> next = p -> next;
-  if((p -> level) > 0)
-    (p -> level)--;
-  makerunnable(&ptable.level[p -> level], p);
+  prev->next = p->next;
+  if (p->level > 0)
+    p->level--;
+  makerunnable(&ptable.level[p->level], p);
 }
+
 
 // Identifies all the old process in a level
 // and moves them to a bigger level of priority
 void
 agelevel(struct queue* level)
 {
-  if(isempty(level))
+  if (isempty(level))
     return;
+
   struct proc* proc = level -> head;
-  while(isold(proc)){
-    level -> head = proc -> next;
-    cprintf("envegecio\n");
-    elevateprocess(0, proc);
-    proc = level -> head;
+
+  while (isold(proc) && !isempty(level)) {
+    proc = dequeue(level);
+    if (proc->level > 0)
+      proc->level--;
+    makerunnable(&ptable.level[proc->level], proc);
   }
-  if(!isempty(level)){
-    ushort nextisold = 0;
-    while(proc -> next){
-      if(isold(proc -> next)){
-        nextisold = 1;
-	cprintf("envegecio\n");
-        elevateprocess(proc, proc -> next);
+  
+  if (!isempty(level)) {
+    while (proc->next) {
+      if (isold(proc->next)) {
+        elevateoldprocess(proc, proc->next);
       }
-      if(!nextisold){
-        proc = proc -> next;
+      else {
+        proc = proc->next;
       }
-      nextisold = 0; 
     }
-  }
-  else{
-    level -> last = 0;
+    level->last = proc;
   }
 }
 
@@ -118,7 +115,7 @@ agelevel(struct queue* level)
 void
 agingmlf() 
 {
-  for(ushort i = 1; i < MLFLEVELS; i++){
+  for (ushort i = 1; i < MLFLEVELS; i++){
     agelevel(&ptable.level[i]);
   }
 }
@@ -327,8 +324,8 @@ fork(void)
 
   acquire(&ptable.lock);
 
-  np-> level = curproc -> level;
-  makerunnable(&ptable.level[np -> level], np);
+  np->level = curproc->level;
+  makerunnable(&ptable.level[np->level], np);
 
   release(&ptable.lock);
 
@@ -444,9 +441,11 @@ scheduler(void)
 
     // Loops over the levels of the MLF
     acquire(&ptable.lock);
-    for(ushort i = 0; i < MLFLEVELS; i++){
+    if (ticks % AGEPOLICY == 0)
+      agingmlf();
+    for (ushort i = 0; i < MLFLEVELS; i++){
       
-      if(isempty(&ptable.level[i]))
+      if (isempty(&ptable.level[i])) 
         continue;
       struct proc* p = dequeue(&ptable.level[i]);
       // Switch to chosen process.  It is the process's job
@@ -464,6 +463,7 @@ scheduler(void)
       // Process is done running for now.
       // It should have changed its p->state before coming back.
       c->proc = 0;
+      break;
     }
     release(&ptable.lock);
   }
@@ -503,9 +503,9 @@ yield(void)
   // As the process used all of his quantum,
   // increases his priority, if already in
   // max priority, stays were it is.
-  if(myproc() -> level >0)
-    (myproc() -> level)++;
-  makerunnable(&ptable.level[myproc() -> level], myproc());
+  if (myproc()->level < MLFLEVELS-1)
+    (myproc()->level)++;
+  makerunnable(&ptable.level[myproc()->level], myproc());
   sched();
   release(&ptable.lock);
 }
@@ -580,8 +580,8 @@ wakeup1(void *chan)
 
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     if(p->state == SLEEPING && p->chan == chan){
-      if(p -> level == MLFLEVELS -1)  
-        p -> level--;
+      if(p->level > 0)  
+        p->level--;
       makerunnable(&ptable.level[p ->level], p);
     }
       
@@ -625,7 +625,7 @@ int
 set_priority(int priority)
 {
   if(priority >= 0 && priority < MLFLEVELS) {
-    myproc() -> level = priority;
+    myproc()->level = priority;
     return 0;
   }
   return -1;
@@ -681,12 +681,12 @@ mlfdump()
   [ZOMBIE]    "zombie"
   };
   int i;
-  for(i=0;i<MLFLEVELS;i++){
+  for(i=0; i<MLFLEVELS; i++){
     cprintf("Level: %d\n", i);
     struct proc* curr = ptable.level[i].head;
-    while(curr -> next) {
+    while(curr->next) {
       cprintf("PID: %d, STATE: %s, NAME: %s", curr->pid, states[curr->state], curr->name);
-      curr = curr -> next;
+      curr = curr->next;
     }
     cprintf("\n");
   }

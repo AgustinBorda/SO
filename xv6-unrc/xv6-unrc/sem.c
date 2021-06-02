@@ -8,7 +8,7 @@
 // A space s is unused when s.refcount == 0
 struct {
   spinlock lock;
-  struct sem sems[NOSEM];
+  struct sem sems[NSEM];
 } semtable;
 
 
@@ -46,7 +46,7 @@ semget1(int key, int init_value)
   sem* s = 0;
   int i = 0;
 
-  for (i = 0; i < NOSEM; i++) {
+  for (i = 0; i < NSEM; i++) {
 
     if (semtable.sems[i].key == key) {
       s = &(semtable.sems[i]);            // If encounter a semaphore with the same key
@@ -60,7 +60,7 @@ semget1(int key, int init_value)
   if (!s) 
     return -1;
 
-  if (i == NOSEM) {
+  if (i == NSEM) {
     s->value = init_value;
     s->key = key;
     initlock(s->lock, (char*) key);

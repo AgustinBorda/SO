@@ -353,6 +353,12 @@ exit(void)
     }
   }
 
+  for (fd = 0; fd < NOSEM; fd++){
+    if(currproc->osem[fd]) {
+      semclose(fd);
+    }
+  }
+
   begin_op();
   iput(curproc->cwd);
   end_op();

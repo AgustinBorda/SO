@@ -2,7 +2,8 @@
 #define KSTACKSIZE 4096  // size of per-process kernel stack
 #define NCPU          8  // maximum number of CPUs
 #define NOFILE       16  // open files per process
-#define NOSEM       256  // maximum number of semaphores in the system.
+#define NSEM        128  // maximum number of semaphores in the system
+#define NOSEM        16  // maximun number of semaphores in a process
 #define NFILE       100  // open files per system
 #define NINODE       50  // maximum number of active i-nodes
 #define NDEV         10  // maximum major device number

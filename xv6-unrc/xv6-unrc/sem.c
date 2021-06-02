@@ -114,30 +114,20 @@ semup(int semid)
   return 0;
 }
 
-// Gets the value of a semaphore 
-// ensuring mutual exclusion
-int
-mutualexclusionvalue(int semid)
-{
-  struct proc* p = myproc();
-  acquire(&(p->osem[semid].lock));
-  int res = p->osem[semid].value;
-  release(&(p->osem[semid].lock));
-  return res;
-}
-
 // Decrement the value of the semaphore by 1 if value > 0,
 // otherwise sleeps the invocant proc.
 // all the accesses to value must unsure mutual exclusion
 // The process p sleeps on chan &(p->osem[semid].lock)
 int
 semdown(int semid)
-{ 
+{
+ 
+  acquire(&(p->osem[semid].lock));
   struct proc* p = myproc();
-  while (!mutualexclusionvalue(semid))
+
+  while (!(p->osem[semid].lock))
     sleep(&(p->osem[semid].lock), &(p->osem[semid].lock));
   
-  acquire(&(p->osem[semid].lock));
   p->osem[semid].value--;
   release(&(p->osem[semid].lock));
   

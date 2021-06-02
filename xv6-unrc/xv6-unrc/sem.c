@@ -26,6 +26,9 @@ allocsem(struct proc* p, struct sem* s)
   if (i == NOSEM)
     return -1;
 
+   acquire(&(s->lock)); // If s is a existent lock, we must ensure mutual exclusion with refcount
+  s->refcount++;
+  release(&(s->lock));
   p->osem[i] = s;
   return i;
 }
@@ -63,9 +66,6 @@ semget1(int key, int init_value)
     initlock(s->lock, (char*) key);
   }
 
-  acquire(&(s->lock)); // If s is a existent lock, we must ensure mutual exclusion with refcount
-  s->refcount++;
-  release(&(s->lock));
 
   return allocsem(myproc(), s);
 }

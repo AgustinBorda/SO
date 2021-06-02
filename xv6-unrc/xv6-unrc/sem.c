@@ -110,7 +110,7 @@ semup(int semid)
   acquire(&(p->osem[semid].lock));
   p->osem[semid].value++;
   release(&(p->osem[semid].lock));
-  wakeup(semid);
+  wakeup(&(p->osem[semid].lock));
   return 0;
 }
 
@@ -129,13 +129,13 @@ mutualexclusionvalue(int semid)
 // Decrement the value of the semaphore by 1 if value > 0,
 // otherwise sleeps the invocant proc.
 // all the accesses to value must unsure mutual exclusion
-// the process sleeping sleeps on the chan semid.
+// The process p sleeps on chan &(p->osem[semid].lock)
 int
 semdown(int semid)
 { 
   struct proc* p = myproc();
   while (!mutualexclusionvalue(semid))
-    sleep(semid, &(p->osem[semid].lock));
+    sleep(&(p->osem[semid].lock), &(p->osem[semid].lock));
   
   acquire(&(p->osem[semid].lock));
   p->osem[semid].value--;

@@ -1,19 +1,44 @@
 #include "types.h"
 #include "stat.h"
 #include "user.h"
+#include "fcntl.h"
 int
 main(void)
 {
-  int sd;
-  int console_lock;
-  sd = semget(1, 0);
-  console_lock = semget(2,1);
-  for (int i = 0; i < 10; i++) {
-    semdown(sd);
-    semdown(console_lock);
-    printf(0, "Yo, consumi\n");
-    semup(console_lock);
+  int sd[3];
+  sd[0] = semget(1,0); // consumer sem
+  sd[1] = semget(2,20); // producer sem
+  sd[2] = semget(3,1); // mutex sem
+
+  int fd = open("test.txt",0);
+  if (fd < 0) {
+    fd = open("test.txt", O_CREATE | O_WRONLY);
+    printf(fd,"0");
+    close(fd);
   }
-  semclose(sd);
-  exit();
+  else {
+    close(fd);
+  }
+  
+  char* buf = sbrk(5);
+  int n;
+
+  for (int i = 0; i < 12; i++) {
+    semdown(sd[0]);
+    semdown(sd[2]);
+    fd = open("test.txt", O_RDONLY);
+    read(fd, buf, 3);
+    n = atoi(buf);
+    n--;
+    close(fd);
+    fd = open("test.txt", O_CREATE | O_WRONLY);
+    printf(fd, "%d", n);
+    close(fd);
+    semup(sd[1]);
+    semup(sd[2]);
+  }
+  for (int i=0; i < 3; i++)
+    semclose(sd[i]);
+
+  return 0;
 }

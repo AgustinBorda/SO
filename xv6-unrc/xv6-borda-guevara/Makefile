@@ -150,14 +150,14 @@ vectors.S: vectors.pl
 ULIB = user/ulib.o user/usys.o user/printf.o user/umalloc.o
 
 _%: user/%.o $(ULIB)
-	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $@ $^
+	$(LD) $(LDFLAGS) -N -Ttext 0 -o $@ $^
 	$(OBJDUMP) -S $@ > $*.asm
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $*.sym
 
 _forktest: user/forktest.o $(ULIB)
 	# forktest has less library code linked in - needs to be small
 	# in order to be able to max out the proc table.
-	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o _forktest user/forktest.o user/ulib.o user/usys.o
+	$(LD) $(LDFLAGS) -N -Ttext 0 -o _forktest user/forktest.o user/ulib.o user/usys.o
 	$(OBJDUMP) -S _forktest > user/forktest.asm
 
 # ===============================================================================

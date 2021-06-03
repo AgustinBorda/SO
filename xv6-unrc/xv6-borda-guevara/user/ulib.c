@@ -104,3 +104,11 @@ memmove(void *vdst, const void *vsrc, int n)
     *dst++ = *src++;
   return vdst;
 }
+
+void
+_start(int argc, char** argv)
+{
+  extern int main(int, char**);
+  main(argc, argv);
+  exit();
+}

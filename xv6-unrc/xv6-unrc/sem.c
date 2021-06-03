@@ -53,7 +53,7 @@ semget1(int key, int init_value)
 
   for (i = 0; i < NSEM; i++) {
 
-    if (semtable.sems[i].key == key) {
+    if (semtable.sems[i].key == key && semtable.sems[i].refcount) {
       s = &(semtable.sems[i]);            // If encounter a semaphore with the same key
       break;                              // There is no point on keep searching
     }

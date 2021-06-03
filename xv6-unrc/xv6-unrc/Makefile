@@ -170,6 +170,7 @@ _forktest: user/forktest.o $(ULIB)
 
 UPROGS=\
 	_cat\
+  _consumer\
 	_echo\
 	_forktest\
 	_forkagingtest\
@@ -179,6 +180,7 @@ UPROGS=\
 	_ln\
 	_ls\
 	_mkdir\
+  _producer\
 	_rm\
 	_sh\
 	_stressfs\

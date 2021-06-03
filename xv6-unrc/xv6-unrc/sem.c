@@ -1,13 +1,18 @@
+#include "types.h"
 #include "defs.h"
 #include "param.h"
-#include "sem.h"
+#include "memlayout.h"
+#include "mmu.h"
+#include "x86.h"
+#include "proc.h"
 #include "spinlock.h"
+#include "sem.h"
 
 // The table of all the semaphores in the system.
 // all accesses must ensure mutual exclusion
 // A space s is unused when s.refcount == 0
 struct {
-  spinlock lock;
+  struct spinlock lock;
   struct sem sems[NSEM];
 } semtable;
 
@@ -26,7 +31,7 @@ allocsem(struct proc* p, struct sem* s)
   if (i == NOSEM)
     return -1;
 
-   acquire(&(s->lock)); // If s is a existent lock, we must ensure mutual exclusion with refcount
+  acquire(&(s->lock)); // If s is a existent lock, we must ensure mutual exclusion with refcount
   s->refcount++;
   release(&(s->lock));
   p->osem[i] = s;
@@ -43,7 +48,7 @@ allocsem(struct proc* p, struct sem* s)
 int static
 semget1(int key, int init_value)
 {
-  sem* s = 0;
+  struct sem* s = 0;
   int i = 0;
 
   for (i = 0; i < NSEM; i++) {
@@ -63,7 +68,7 @@ semget1(int key, int init_value)
   if (i == NSEM) {
     s->value = init_value;
     s->key = key;
-    initlock(s->lock, (char*) key);
+    initlock(&(s->lock), (char*) key);
   }
 
 
@@ -93,9 +98,9 @@ semclose(int semid)
   if (!p->osem[semid])
     return -1;
   
-  acquire(&(p->osem[semid].lock));   // We must ensure mutual exclusion with refcount
-  p->osem[semid].refcount--;
-  release(&(p->osem[semid].lock));
+  acquire(&(p->osem[semid]->lock));   // We must ensure mutual exclusion with refcount
+  p->osem[semid]->refcount--;
+  release(&(p->osem[semid]->lock));
 
   p->osem[semid] = 0;
   return 0;
@@ -107,16 +112,16 @@ int
 semup(int semid)
 {
   struct proc* p = myproc();
-  acquire(&(p->osem[semid].lock));
+  acquire(&(p->osem[semid]->lock));
 
   if (!p->osem[semid] || semid > NOSEM) {
-    release(&(p->osem[semid].lock));
+    release(&(p->osem[semid]->lock));
     return -1;
   }
 
-  p->osem[semid].value++;
-  release(&(p->osem[semid].lock));
-  wakeup(&(p->osem[semid].lock));
+  p->osem[semid]->value++;
+  release(&(p->osem[semid]->lock));
+  wakeup(&(p->osem[semid]->lock));
   return 0;
 }
 
@@ -126,20 +131,19 @@ semup(int semid)
 // The process p sleeps on chan &(p->osem[semid].lock)
 int
 semdown(int semid)
-{
- 
-  acquire(&(p->osem[semid].lock));
+{ 
+  struct proc* p = myproc();
+  acquire(&(p->osem[semid]->lock));
   if (!p->osem[semid] || semid > NOSEM) {
-    release(&(p->osem[semid].lock));
+    release(&(p->osem[semid]->lock));
     return -1;
   }
-  struct proc* p = myproc();
 
-  while (!(p->osem[semid].lock))
-    sleep(&(p->osem[semid].lock), &(p->osem[semid].lock));
+  while (!(p->osem[semid]->value))
+    sleep(&(p->osem[semid]->lock), &(p->osem[semid]->lock));
   
-  p->osem[semid].value--;
-  release(&(p->osem[semid].lock));
+  p->osem[semid]->value--;
+  release(&(p->osem[semid]->lock));
   
   return 0;
 }

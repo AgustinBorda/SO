@@ -94,6 +94,48 @@ int
 sys_set_priority(void) 
 {
   int priority;
-  argint(0,&priority);
+  argint(0, &priority);
   return set_priority(priority);
+}
+
+int
+sys_semget(void)
+{
+  int key;
+  int val;
+
+  argint(0, &key);
+  argint(1, &val);
+
+  return semget(key, val);  
+}
+
+int
+sys_semclose(void)
+{
+  int semid;
+
+  argint(0, &semid);
+
+  return semclose(semid);
+}
+
+int
+sys_semup(void)
+{
+  int semid;
+
+  argint(0, &semid);
+
+  return semup(semid);
+}
+
+int
+sys_semdown(void)
+{
+  int semid;
+
+  argint(0, &semid);
+
+  return semdown(semid);
 }

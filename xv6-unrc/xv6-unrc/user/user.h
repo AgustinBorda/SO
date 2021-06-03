@@ -24,6 +24,10 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 int set_priority(int);
+int semget(int, int);
+int semclose(int);
+int semup(int);
+int semdown(int);
 
 // ulib.c
 int stat(const char*, struct stat*);

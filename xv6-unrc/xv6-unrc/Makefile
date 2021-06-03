@@ -15,6 +15,7 @@ OBJS = \
 	picirq.o\
 	pipe.o\
 	proc.o\
+  sem.o\
 	sleeplock.o\
 	spinlock.o\
 	string.o\

@@ -352,9 +352,9 @@ exit(void)
       curproc->ofile[fd] = 0;
     }
   }
-
+  // Close all open semaphores.
   for (fd = 0; fd < NOSEM; fd++){
-    if(currproc->osem[fd]) {
+    if(curproc->osem[fd]) {
       semclose(fd);
     }
   }

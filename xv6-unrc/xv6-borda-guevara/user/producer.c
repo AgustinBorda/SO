@@ -24,6 +24,7 @@ main(void)
   int n;
 
   for (int i = 0; i < 17; i++) {
+    sleep(5);  // production time
     semdown(sd[1]); // produce
     semdown(sd[2]);
     fd = open("test.txt", O_RDONLY);

@@ -25,3 +25,4 @@
 #define SYS_semclose 24
 #define SYS_semup 25
 #define SYS_semdown 26
+#define SYS_mmap 27

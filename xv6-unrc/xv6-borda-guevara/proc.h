@@ -41,7 +41,9 @@ struct proc {
   uint timerunnable;              // Time when the process became runnable
   struct proc *next;              // Next process in MLF
   uint sz;                        // Size of process memory (bytes)
-  pde_t* pgdir;                   // Page table
+  uint stackgap;                  // End of stack space.
+  uint stackbase;                 // Base of the stack
+  pde_t *pgdir;                   // Page table
   char *kstack;                   // Bottom of kernel stack for this process
   enum procstate state;           // Process state
   int pid;                        // Process ID
@@ -52,6 +54,7 @@ struct proc {
   int killed;                     // If non-zero, have been killed
   struct file *ofile[NOFILE];     // Open files
   struct sem *osem[NOSEM];        // Open semaphores
+  struct filemap *ommap[NOMMAP];  // Open file-maps
   struct inode *cwd;              // Current directory
   char name[16];                  // Process name (debugging)
 };

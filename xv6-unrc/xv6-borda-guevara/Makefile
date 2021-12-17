@@ -15,6 +15,7 @@ OBJS = \
 	picirq.o\
 	pipe.o\
 	proc.o\
+  mmap.o\
   sem.o\
 	sleeplock.o\
 	spinlock.o\
@@ -184,6 +185,7 @@ UPROGS=\
 	_rm\
 	_sh\
 	_stressfs\
+  _stacktest\
 	_usertests\
 	_wc\
 	_zombie\

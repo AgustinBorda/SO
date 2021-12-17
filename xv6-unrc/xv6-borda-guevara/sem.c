@@ -112,13 +112,10 @@ int
 semup(int semid)
 {
   struct proc* p = myproc();
+  if (!p->osem[semid] || semid > NOSEM)
+    return -1; 
+
   acquire(&(p->osem[semid]->lock));
-
-  if (!p->osem[semid] || semid > NOSEM) {
-    release(&(p->osem[semid]->lock));
-    return -1;
-  }
-
   p->osem[semid]->value++;
   release(&(p->osem[semid]->lock));
   wakeup(&(p->osem[semid]->lock));
@@ -133,11 +130,10 @@ int
 semdown(int semid)
 { 
   struct proc* p = myproc();
-  acquire(&(p->osem[semid]->lock));
-  if (!p->osem[semid] || semid > NOSEM) {
-    release(&(p->osem[semid]->lock));
+  if (!p->osem[semid] || semid > NOSEM)
     return -1;
-  }
+
+  acquire(&(p->osem[semid]->lock));
 
   while (!(p->osem[semid]->value))
     sleep(&(p->osem[semid]->lock), &(p->osem[semid]->lock));

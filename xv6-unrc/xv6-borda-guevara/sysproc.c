@@ -7,6 +7,7 @@
 #include "mmu.h"
 #include "proc.h"
 
+
 int
 sys_fork(void)
 {
@@ -139,3 +140,14 @@ sys_semdown(void)
 
   return semdown(semid);
 }
+
+int
+sys_mmap(void)
+{
+  int fd;
+  
+  argint(0, &fd);
+
+  return mmap(fd);
+}
+

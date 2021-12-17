@@ -195,5 +195,8 @@ int             semdown(int semid);
 int             semclose(int semid);
 int             semup(int semid);
 
+// mmap.c
+int             mmap(int fd);
+
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

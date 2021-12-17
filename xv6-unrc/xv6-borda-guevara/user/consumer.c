@@ -5,11 +5,11 @@
 int
 main(void)
 {
+
   int sd[3];
   sd[0] = semget(1,0); // consumer sem
   sd[1] = semget(2,20); // producer sem
   sd[2] = semget(3,1); // mutex sem
-
   int fd = open("test.txt",0);
   if (fd < 0) {
     fd = open("test.txt", O_CREATE | O_WRONLY);
@@ -35,6 +35,7 @@ main(void)
     printf(fd, "%d", n);
     close(fd);
     semup(sd[1]);
+    sleep(5); //consumer time
     semup(sd[2]);
   }
   for (int i=0; i < 3; i++)

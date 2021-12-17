@@ -3,7 +3,8 @@
 #define NCPU          8  // maximum number of CPUs
 #define NOFILE       16  // open files per process
 #define NSEM        128  // maximum number of semaphores in the system
-#define NOSEM        16  // maximun number of semaphores in a process
+#define NOSEM        16  // maximum number of semaphores in a process
+#define NOMMAP        8  // maximum number of files mapped in memory in a process
 #define NFILE       100  // open files per system
 #define NINODE       50  // maximum number of active i-nodes
 #define NDEV         10  // maximum major device number
@@ -16,3 +17,4 @@
 #define MLFLEVELS    4  // levels of the mlf
 #define OLDTICKS     10 // all process with more ticks than this in runnable, is considered old
 #define AGEPOLICY    100 // period between the aging function launching
+#define STACKPGS     128 // maximun number of pages to the stack of a process.

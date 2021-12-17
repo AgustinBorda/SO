@@ -7,6 +7,14 @@
 #include "x86.h"
 #include "traps.h"
 #include "spinlock.h"
+#include "mmap.h"
+#include "fs.h"
+
+// Defines if a value (val) is between a base address and
+// an offset.
+#define between(base, off, val) ((val >= base) && (val < base + off))
+
+#define min(a, b) ((a>=b) ? a : b)
 
 // Interrupt descriptor table (shared by all CPUs).
 struct gatedesc idt[256];
@@ -86,12 +94,34 @@ trap(struct trapframe *tf)
               tf->trapno, cpuid(), tf->eip, rcr2());
       panic("trap");
     }
-    // In user space, assume process misbehaved.
-    cprintf("pid %d %s: trap %d err %d on cpu %d "
-            "eip 0x%x addr 0x%x--kill proc\n",
-            myproc()->pid, myproc()->name, tf->trapno,
-            tf->err, cpuid(), tf->eip, rcr2());
-    myproc()->killed = 1;
+    // In user space, check if the direction that fired the 
+    // page fault is valid (between the gap and the size of the process).
+    // If its valid, allocate another page for the dir, else the process misbehaved.
+    if(myproc()->stackgap <= rcr2() && myproc()->sz >= rcr2()){
+        allocuvm(myproc()->pgdir, PGROUNDDOWN(rcr2()), PGROUNDUP(rcr2()));
+        if(rcr2() > myproc()->stackbase) {
+          uint i = 0;
+          while(i < NOMMAP && !between(myproc()->ommap[i]->baseaddr, myproc()->ommap[i]->size, rcr2()))
+            i++;
+
+
+          if(i == NOMMAP)
+            myproc()->killed = 1;
+
+
+          uint dest = PGROUNDUP(rcr2());
+          uint off = PGROUNDUP(rcr2()) - myproc()->ommap[i]->baseaddr;
+          uint n = min(PGSIZE, myproc()->ommap[i]->size - off);
+          readi(myproc()->ommap[i]->ip, (char*) dest, off, n);
+        }
+    }
+    else {
+      cprintf("pid %d %s: trap %d err %d on cpu %d "
+              "eip 0x%x addr 0x%x--kill proc\n",
+              myproc()->pid, myproc()->name, tf->trapno,
+              tf->err, cpuid(), tf->eip, rcr2());
+      myproc()->killed = 1;
+    }
   }
 
   // Force process exit if it has been killed and is in user space.

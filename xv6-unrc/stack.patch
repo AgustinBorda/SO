@@ -1,0 +1,1121 @@
+diff --color -rupN xv6-unrc/defs.h xv6-borda-guevara/defs.h
+--- xv6-unrc/defs.h	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/defs.h	2021-06-03 09:06:21.636242277 -0300
+@@ -9,6 +9,7 @@ struct spinlock;
+ struct sleeplock;
+ struct stat;
+ struct superblock;
++struct semaphore;
+ 
+ // bio.c
+ void            binit(void);
+@@ -108,10 +109,12 @@ void            exit(void);
+ int             fork(void);
+ int             growproc(int);
+ int             kill(int);
++int             set_priority(int);
+ struct cpu*     mycpu(void);
+ struct proc*    myproc();
+ void            pinit(void);
+ void            procdump(void);
++void            mlfdump(void);
+ void            scheduler(void) __attribute__((noreturn));
+ void            sched(void);
+ void            setproc(struct proc*);
+@@ -186,5 +189,11 @@ void            switchkvm(void);
+ int             copyout(pde_t*, uint, void*, uint);
+ void            clearpteu(pde_t *pgdir, char *uva);
+ 
++// semaphore.c
++int             semget(int key, int init_value);
++int             semdown(int semid);
++int             semclose(int semid);
++int             semup(int semid);
++
+ // number of elements in fixed-size array
+ #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
+diff --color -rupN xv6-unrc/exec.c xv6-borda-guevara/exec.c
+--- xv6-unrc/exec.c	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/exec.c	2021-06-17 12:45:27.677122880 -0300
+@@ -60,12 +60,11 @@ exec(char *path, char **argv)
+   end_op();
+   ip = 0;
+ 
+-  // Allocate two pages at the next page boundary.
+-  // Make the first inaccessible.  Use the second as the user stack.
+-  sz = PGROUNDUP(sz);
+-  if((sz = allocuvm(pgdir, sz, sz + 2*PGSIZE)) == 0)
++  // Allocate a page STACKPGS+1 blocks after the data segment.
++  sz = PGROUNDUP(sz) + PGSIZE;
++  curproc->stackgap = sz;
++  if((sz = allocuvm(pgdir, sz + (STACKPGS-1) * PGSIZE, sz + STACKPGS * PGSIZE)) == 0)
+     goto bad;
+-  clearpteu(pgdir, (char*)(sz - 2*PGSIZE));
+   sp = sz;
+ 
+   // Push argument strings, prepare rest of stack in ustack.
+diff --color -rupN xv6-unrc/Makefile xv6-borda-guevara/Makefile
+--- xv6-unrc/Makefile	2021-04-15 12:50:04.000000000 -0300
++++ xv6-borda-guevara/Makefile	2021-06-17 11:24:58.382237115 -0300
+@@ -15,6 +15,7 @@ OBJS = \
+ 	picirq.o\
+ 	pipe.o\
+ 	proc.o\
++  sem.o\
+ 	sleeplock.o\
+ 	spinlock.o\
+ 	string.o\
+@@ -149,14 +150,14 @@ vectors.S: vectors.pl
+ ULIB = user/ulib.o user/usys.o user/printf.o user/umalloc.o
+ 
+ _%: user/%.o $(ULIB)
+-	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $@ $^
++	$(LD) $(LDFLAGS) -N -Ttext 0 -o $@ $^
+ 	$(OBJDUMP) -S $@ > $*.asm
+ 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $*.sym
+ 
+ _forktest: user/forktest.o $(ULIB)
+ 	# forktest has less library code linked in - needs to be small
+ 	# in order to be able to max out the proc table.
+-	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o _forktest user/forktest.o user/ulib.o user/usys.o
++	$(LD) $(LDFLAGS) -N -Ttext 0 -o _forktest user/forktest.o user/ulib.o user/usys.o
+ 	$(OBJDUMP) -S _forktest > user/forktest.asm
+ 
+ # ===============================================================================
+@@ -169,17 +170,21 @@ _forktest: user/forktest.o $(ULIB)
+ 
+ UPROGS=\
+ 	_cat\
++  _consumer\
+ 	_echo\
+ 	_forktest\
++	_forkagingtest\
+ 	_grep\
+ 	_init\
+ 	_kill\
+ 	_ln\
+ 	_ls\
+ 	_mkdir\
++  _producer\
+ 	_rm\
+ 	_sh\
+ 	_stressfs\
++  _stacktest\
+ 	_usertests\
+ 	_wc\
+ 	_zombie\
+diff --color -rupN xv6-unrc/param.h xv6-borda-guevara/param.h
+--- xv6-unrc/param.h	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/param.h	2021-06-17 12:21:04.288112014 -0300
+@@ -2,6 +2,8 @@
+ #define KSTACKSIZE 4096  // size of per-process kernel stack
+ #define NCPU          8  // maximum number of CPUs
+ #define NOFILE       16  // open files per process
++#define NSEM        128  // maximum number of semaphores in the system
++#define NOSEM        16  // maximun number of semaphores in a process
+ #define NFILE       100  // open files per system
+ #define NINODE       50  // maximum number of active i-nodes
+ #define NDEV         10  // maximum major device number
+@@ -11,4 +13,7 @@
+ #define LOGSIZE      (MAXOPBLOCKS*3)  // max data blocks in on-disk log
+ #define NBUF         (MAXOPBLOCKS*3)  // size of disk block cache
+ #define FSSIZE       1000  // size of file system in blocks
+-
++#define MLFLEVELS    4  // levels of the mlf
++#define OLDTICKS     10 // all process with more ticks than this in runnable, is considered old
++#define AGEPOLICY    100 // period between the aging function launching
++#define STACKPGS     128 // maximun number of pages to the stack of a process.
+diff --color -rupN xv6-unrc/proc.c xv6-borda-guevara/proc.c
+--- xv6-unrc/proc.c	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/proc.c	2021-06-03 09:06:21.640242275 -0300
+@@ -6,12 +6,121 @@
+ #include "x86.h"
+ #include "proc.h"
+ #include "spinlock.h"
++// Define if a queue is empty
++#define isempty(queue) (queue)->head == 0
++// Define if a process is old
++#define isold(proc) ((ticks - ((proc) -> timerunnable)) >= OLDTICKS)
++
++// MLF level structure
++struct queue {
++  struct proc* head;
++  struct proc* last;
++};
+ 
++// Make a given process runnable and enqueues in
++// a level of the MLF
++void
++makerunnable(struct queue* level, struct proc* proc)
++{ 
++  proc->timerunnable = ticks;
++  proc->state = RUNNABLE;
++
++  if (isempty(level)) {
++    level->head = proc;
++    level->last = proc; 
++  }
++  else {
++    (level->last)->next = proc;
++    level->last = proc;   
++  }
++  proc->next = 0; 
++}
++
++
++// Dequeues a element of a given level
++// of the MLF, must be called with a
++// non-empty queue.
++struct proc*
++dequeue(struct queue* level)
++{
++  if (isempty(level)) {
++    panic("attempted to get a process from empty queue\n");
++  }
++  else {
++    struct proc* p = level->head;
++    level->head = p -> next;
++    p->next = 0;
++    // If the next process of the head is 0 (null)
++    // the queue has only 1 element
++    if (level->head == 0)
++      level->last = 0;
++    if (p->state != RUNNABLE){
++      mlfdump();
++      panic("non-runnable process in the queues\n");
++    }
++    return p;
++  }
++  return 0;
++}
++
++
++// MLF
+ struct {
+   struct spinlock lock;
+   struct proc proc[NPROC];
++  struct queue level[MLFLEVELS];
+ } ptable;
+ 
++void
++elevateoldprocess(struct proc* prev, struct proc* p)
++{
++  prev->next = p->next;
++  if (p->level > 0)
++    p->level--;
++  makerunnable(&ptable.level[p->level], p);
++}
++
++
++// Identifies all the old process in a level
++// and moves them to a bigger level of priority
++void
++agelevel(struct queue* level)
++{
++  if (isempty(level))
++    return;
++
++  struct proc* proc = level -> head;
++
++  while (isold(proc) && !isempty(level)) {
++    proc = dequeue(level);
++    if (proc->level > 0)
++      proc->level--;
++    makerunnable(&ptable.level[proc->level], proc);
++  }
++  
++  if (!isempty(level)) {
++    while (proc->next) {
++      if (isold(proc->next)) {
++        elevateoldprocess(proc, proc->next);
++      }
++      else {
++        proc = proc->next;
++      }
++    }
++    level->last = proc;
++  }
++}
++
++// Ages all the levels of the MLF
++void
++agingmlf() 
++{
++  for (ushort i = 1; i < MLFLEVELS; i++){
++    agelevel(&ptable.level[i]);
++  }
++}
++
++
+ static struct proc *initproc;
+ 
+ int nextpid = 1;
+@@ -88,6 +197,7 @@ allocproc(void)
+ found:
+   p->state = EMBRYO;
+   p->pid = nextpid++;
++  p->level = 0;
+ 
+   release(&ptable.lock);
+ 
+@@ -124,8 +234,8 @@ userinit(void)
+   extern char _binary_initcode_start[], _binary_initcode_size[];
+ 
+   p = allocproc();
+-  
+   initproc = p;
++  p -> level = 0;
+   if((p->pgdir = setupkvm()) == 0)
+     panic("userinit: out of memory?");
+   inituvm(p->pgdir, _binary_initcode_start, (int)_binary_initcode_size);
+@@ -148,7 +258,7 @@ userinit(void)
+   // because the assignment might not be atomic.
+   acquire(&ptable.lock);
+ 
+-  p->state = RUNNABLE;
++  makerunnable(&ptable.level[p->level], p);
+ 
+   release(&ptable.lock);
+ }
+@@ -214,7 +324,8 @@ fork(void)
+ 
+   acquire(&ptable.lock);
+ 
+-  np->state = RUNNABLE;
++  np->level = curproc->level;
++  makerunnable(&ptable.level[np->level], np);
+ 
+   release(&ptable.lock);
+ 
+@@ -241,6 +352,12 @@ exit(void)
+       curproc->ofile[fd] = 0;
+     }
+   }
++  // Close all open semaphores.
++  for (fd = 0; fd < NOSEM; fd++){
++    if(curproc->osem[fd]) {
++      semclose(fd);
++    }
++  }
+ 
+   begin_op();
+   iput(curproc->cwd);
+@@ -322,36 +439,39 @@ wait(void)
+ void
+ scheduler(void)
+ {
+-  struct proc *p;
+   struct cpu *c = mycpu();
+   c->proc = 0;
+-  
+   for(;;){
+     // Enable interrupts on this processor.
+-    sti();
++    sti(); 
+ 
+-    // Loop over process table looking for process to run.
++    // Loops over the levels of the MLF
+     acquire(&ptable.lock);
+-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+-      if(p->state != RUNNABLE)
++    if (ticks % AGEPOLICY == 0)
++      agingmlf();
++    for (ushort i = 0; i < MLFLEVELS; i++){
++      
++      if (isempty(&ptable.level[i])) 
+         continue;
+-
++      struct proc* p = dequeue(&ptable.level[i]);
+       // Switch to chosen process.  It is the process's job
+       // to release ptable.lock and then reacquire it
+       // before jumping back to us.
+       c->proc = p;
++      p->remainingticks = (p->level)+1;
+       switchuvm(p);
+       p->state = RUNNING;
+-
++      
++      // Black hole
+       swtch(&(c->scheduler), p->context);
+       switchkvm();
+ 
+       // Process is done running for now.
+       // It should have changed its p->state before coming back.
+       c->proc = 0;
++      break;
+     }
+     release(&ptable.lock);
+-
+   }
+ }
+ 
+@@ -386,7 +506,12 @@ void
+ yield(void)
+ {
+   acquire(&ptable.lock);  //DOC: yieldlock
+-  myproc()->state = RUNNABLE;
++  // As the process used all of his quantum,
++  // increases his priority, if already in
++  // max priority, stays were it is.
++  if (myproc()->level < MLFLEVELS-1)
++    (myproc()->level)++;
++  makerunnable(&ptable.level[myproc()->level], myproc());
+   sched();
+   release(&ptable.lock);
+ }
+@@ -460,8 +585,12 @@ wakeup1(void *chan)
+   struct proc *p;
+ 
+   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+-    if(p->state == SLEEPING && p->chan == chan)
+-      p->state = RUNNABLE;
++    if(p->state == SLEEPING && p->chan == chan){
++      if(p->level > 0)  
++        p->level--;
++      makerunnable(&ptable.level[p ->level], p);
++    }
++      
+ }
+ 
+ // Wake up all processes sleeping on chan.
+@@ -486,8 +615,10 @@ kill(int pid)
+     if(p->pid == pid){
+       p->killed = 1;
+       // Wake process from sleep if necessary.
+-      if(p->state == SLEEPING)
+-        p->state = RUNNABLE;
++      if(p->state == SLEEPING) {
++        p->level = 0;
++        makerunnable(&ptable.level[p -> level], p);
++      }
+       release(&ptable.lock);
+       return 0;
+     }
+@@ -496,6 +627,16 @@ kill(int pid)
+   return -1;
+ }
+ 
++int
++set_priority(int priority)
++{
++  if(priority >= 0 && priority < MLFLEVELS) {
++    myproc()->level = priority;
++    return 0;
++  }
++  return -1;
++}
++
+ //PAGEBREAK: 36
+ // Print a process listing to console.  For debugging.
+ // Runs when user types ^P on console.
+@@ -523,7 +664,7 @@ procdump(void)
+       state = states[p->state];
+     else
+       state = "???";
+-    cprintf("%d %s %s", p->pid, state, p->name);
++    cprintf("%d %s %s %d", p->pid, state, p->name, p->level);
+     if(p->state == SLEEPING){
+       getcallerpcs((uint*)p->context->ebp+2, pc);
+       for(i=0; i<10 && pc[i] != 0; i++)
+@@ -532,3 +673,30 @@ procdump(void)
+     cprintf("\n");
+   }
+ }
++
++
++void
++mlfdump()
++{
++  static char *states[] = {
++  [UNUSED]    "unused",
++  [EMBRYO]    "embryo",
++  [SLEEPING]  "sleep ",
++  [RUNNABLE]  "runble",
++  [RUNNING]   "run   ",
++  [ZOMBIE]    "zombie"
++  };
++  int i;
++  for(i=0; i<MLFLEVELS; i++){
++    cprintf("Level: %d\n", i);
++    struct proc* curr = ptable.level[i].head;
++    while(curr->next) {
++      cprintf("PID: %d, STATE: %s, NAME: %s", curr->pid, states[curr->state], curr->name);
++      curr = curr->next;
++    }
++    cprintf("\n");
++  }
++}
++ 
++
++
+diff --color -rupN xv6-unrc/proc.h xv6-borda-guevara/proc.h
+--- xv6-unrc/proc.h	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/proc.h	2021-06-17 11:19:04.727368614 -0300
+@@ -36,19 +36,25 @@ enum procstate { UNUSED, EMBRYO, SLEEPIN
+ 
+ // Per-process state
+ struct proc {
+-  uint sz;                     // Size of process memory (bytes)
+-  pde_t* pgdir;                // Page table
+-  char *kstack;                // Bottom of kernel stack for this process
+-  enum procstate state;        // Process state
+-  int pid;                     // Process ID
+-  struct proc *parent;         // Parent process
+-  struct trapframe *tf;        // Trap frame for current syscall
+-  struct context *context;     // swtch() here to run process
+-  void *chan;                  // If non-zero, sleeping on chan
+-  int killed;                  // If non-zero, have been killed
+-  struct file *ofile[NOFILE];  // Open files
+-  struct inode *cwd;           // Current directory
+-  char name[16];               // Process name (debugging)
++  ushort remainingticks;          // Remaining ticks of this process in cpu (if in cpu)
++  ushort level;                   // The level of the process in MLF
++  uint timerunnable;              // Time when the process became runnable
++  struct proc *next;              // Next process in MLF
++  uint sz;                        // Size of process memory (bytes)
++  uint stackgap;                  // End of stack space.
++  pde_t* pgdir;                   // Page table
++  char *kstack;                   // Bottom of kernel stack for this process
++  enum procstate state;           // Process state
++  int pid;                        // Process ID
++  struct proc *parent;            // Parent process
++  struct trapframe *tf;           // Trap frame for current syscall
++  struct context *context;        // swtch() here to run process
++  void *chan;                     // If non-zero, sleeping on chan
++  int killed;                     // If non-zero, have been killed
++  struct file *ofile[NOFILE];     // Open files
++  struct sem *osem[NOSEM];        // Open semaphores
++  struct inode *cwd;              // Current directory
++  char name[16];                  // Process name (debugging)
+ };
+ 
+ // Process memory is laid out contiguously, low addresses first:
+diff --color -rupN xv6-unrc/sem.c xv6-borda-guevara/sem.c
+--- xv6-unrc/sem.c	1969-12-31 21:00:00.000000000 -0300
++++ xv6-borda-guevara/sem.c	2021-06-17 10:16:04.409745812 -0300
+@@ -0,0 +1,146 @@
++#include "types.h"
++#include "defs.h"
++#include "param.h"
++#include "memlayout.h"
++#include "mmu.h"
++#include "x86.h"
++#include "proc.h"
++#include "spinlock.h"
++#include "sem.h"
++
++// The table of all the semaphores in the system.
++// all accesses must ensure mutual exclusion
++// A space s is unused when s.refcount == 0
++struct {
++  struct spinlock lock;
++  struct sem sems[NSEM];
++} semtable;
++
++
++// Allocates a semaphore s in the osem array 
++// of a process p.
++// returns the position where s is allocated if success,
++// otherwise returns -1
++int
++allocsem(struct proc* p, struct sem* s)
++{
++  uint i = 0;
++  while (i < NOSEM && p->osem[i])
++    i++;
++
++  if (i == NOSEM)
++    return -1;
++
++  acquire(&(s->lock)); // If s is a existent lock, we must ensure mutual exclusion with refcount
++  s->refcount++;
++  release(&(s->lock));
++  p->osem[i] = s;
++  return i;
++}
++
++
++// Creates a new semaphore if not exists
++// a semaphore with the given key,
++// otherwise gets the semaphore with the key.
++// if sucess returns the descriptor of the semaphore in myproc() -> osem and increments refcount by 1
++// or returns -1 if an error ocurred (invalid init_value or no semaphores available)
++// Must be called with the lock of the semtable acquired.   
++int static
++semget1(int key, int init_value)
++{
++  struct sem* s = 0;
++  int i = 0;
++
++  for (i = 0; i < NSEM; i++) {
++
++    if (semtable.sems[i].refcount && semtable.sems[i].key == key) {
++      s = &(semtable.sems[i]);            // If encounter a semaphore with the same key
++      break;                              // There is no point on keep searching
++    }
++
++    if (!(semtable.sems[i].refcount))
++      s = &(semtable.sems[i]);
++  }
++
++  if (!s) 
++    return -1;
++
++  if (i == NSEM) {
++    s->value = init_value;
++    s->key = key;
++    initlock(&(s->lock), (char*) key);
++  }
++
++
++  return allocsem(myproc(), s);
++}
++
++// Calls semget1 with the lock of the semtable acquired,
++// releases it after use.
++int
++semget(int key, int init_value)
++{
++  acquire(&semtable.lock);
++  int res = semget1(key, init_value);
++  release(&semtable.lock);
++  return res;
++}
++
++// Removes a semaphore from myproc() -> osem
++// and decrements refcount by 1.
++// returns 0 if the semaphore with semid exists, otherwise 
++// returns -1
++int
++semclose(int semid)
++{
++  struct proc* p = myproc();
++
++  if (!p->osem[semid])
++    return -1;
++  
++  acquire(&(p->osem[semid]->lock));   // We must ensure mutual exclusion with refcount
++  p->osem[semid]->refcount--;
++  release(&(p->osem[semid]->lock));
++
++  p->osem[semid] = 0;
++  return 0;
++}
++
++// Increment the value of the semaphore by 1.
++// all the accesses to value must ensure mutual exclusion.
++int
++semup(int semid)
++{
++  struct proc* p = myproc();
++  if (!p->osem[semid] || semid > NOSEM)
++    return -1; 
++
++  acquire(&(p->osem[semid]->lock));
++  p->osem[semid]->value++;
++  release(&(p->osem[semid]->lock));
++  wakeup(&(p->osem[semid]->lock));
++  return 0;
++}
++
++// Decrement the value of the semaphore by 1 if value > 0,
++// otherwise sleeps the invocant proc.
++// all the accesses to value must unsure mutual exclusion
++// The process p sleeps on chan &(p->osem[semid].lock)
++int
++semdown(int semid)
++{ 
++  struct proc* p = myproc();
++  if (!p->osem[semid] || semid > NOSEM)
++    return -1;
++
++  acquire(&(p->osem[semid]->lock));
++
++  while (!(p->osem[semid]->value))
++    sleep(&(p->osem[semid]->lock), &(p->osem[semid]->lock));
++  
++  p->osem[semid]->value--;
++  release(&(p->osem[semid]->lock));
++  
++  return 0;
++}
++
+diff --color -rupN xv6-unrc/sem.h xv6-borda-guevara/sem.h
+--- xv6-unrc/sem.h	1969-12-31 21:00:00.000000000 -0300
++++ xv6-borda-guevara/sem.h	2021-06-03 09:06:21.640242275 -0300
+@@ -0,0 +1,7 @@
++struct sem {
++  int value;          // the number of process that can access the critic region at the same time
++  uint refcount;      // the number of process that references a semaphore
++  struct spinlock lock;      // lock to ensure mutual exclusion
++  int key;            // key (unique) to identify a semaphore
++};
++
+diff --color -rupN xv6-unrc/spinlock.c xv6-borda-guevara/spinlock.c
+--- xv6-unrc/spinlock.c	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/spinlock.c	2021-06-03 09:06:52.828230914 -0300
+@@ -25,7 +25,7 @@ void
+ acquire(struct spinlock *lk)
+ {
+   pushcli(); // disable interrupts to avoid deadlock.
+-  if(holding(lk))
++  if(holding(lk)) 
+     panic("acquire");
+ 
+   // The xchg is atomic.
+diff --color -rupN xv6-unrc/syscall.c xv6-borda-guevara/syscall.c
+--- xv6-unrc/syscall.c	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/syscall.c	2021-06-03 09:06:21.640242275 -0300
+@@ -103,6 +103,13 @@ extern int sys_unlink(void);
+ extern int sys_wait(void);
+ extern int sys_write(void);
+ extern int sys_uptime(void);
++extern int sys_set_priority(void);
++extern int sys_semget(void);
++extern int sys_semclose(void);
++extern int sys_semup(void);
++extern int sys_semdown(void);
++
++
+ 
+ static int (*syscalls[])(void) = {
+ [SYS_fork]    sys_fork,
+@@ -126,6 +133,11 @@ static int (*syscalls[])(void) = {
+ [SYS_link]    sys_link,
+ [SYS_mkdir]   sys_mkdir,
+ [SYS_close]   sys_close,
++[SYS_set_priority] sys_set_priority,
++[SYS_semget] sys_semget,
++[SYS_semclose] sys_semclose,
++[SYS_semup] sys_semup,
++[SYS_semdown] sys_semdown,
+ };
+ 
+ void
+diff --color -rupN xv6-unrc/syscall.h xv6-borda-guevara/syscall.h
+--- xv6-unrc/syscall.h	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/syscall.h	2021-06-03 09:06:21.644242272 -0300
+@@ -20,3 +20,8 @@
+ #define SYS_link   19
+ #define SYS_mkdir  20
+ #define SYS_close  21
++#define SYS_set_priority 22
++#define SYS_semget 23
++#define SYS_semclose 24
++#define SYS_semup 25
++#define SYS_semdown 26
+diff --color -rupN xv6-unrc/sysproc.c xv6-borda-guevara/sysproc.c
+--- xv6-unrc/sysproc.c	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/sysproc.c	2021-06-03 09:06:21.644242272 -0300
+@@ -89,3 +89,53 @@ sys_uptime(void)
+   release(&tickslock);
+   return xticks;
+ }
++
++int
++sys_set_priority(void) 
++{
++  int priority;
++  argint(0, &priority);
++  return set_priority(priority);
++}
++
++int
++sys_semget(void)
++{
++  int key;
++  int val;
++
++  argint(0, &key);
++  argint(1, &val);
++
++  return semget(key, val);  
++}
++
++int
++sys_semclose(void)
++{
++  int semid;
++
++  argint(0, &semid);
++
++  return semclose(semid);
++}
++
++int
++sys_semup(void)
++{
++  int semid;
++
++  argint(0, &semid);
++
++  return semup(semid);
++}
++
++int
++sys_semdown(void)
++{
++  int semid;
++
++  argint(0, &semid);
++
++  return semdown(semid);
++}
+diff --color -rupN xv6-unrc/trap.c xv6-borda-guevara/trap.c
+--- xv6-unrc/trap.c	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/trap.c	2021-06-17 12:44:19.813904735 -0300
+@@ -86,12 +86,19 @@ trap(struct trapframe *tf)
+               tf->trapno, cpuid(), tf->eip, rcr2());
+       panic("trap");
+     }
+-    // In user space, assume process misbehaved.
+-    cprintf("pid %d %s: trap %d err %d on cpu %d "
+-            "eip 0x%x addr 0x%x--kill proc\n",
+-            myproc()->pid, myproc()->name, tf->trapno,
+-            tf->err, cpuid(), tf->eip, rcr2());
+-    myproc()->killed = 1;
++    // In user space, check if the direction that fired the 
++    // page fault is valid (between the gap and the size of the process).
++    // If its valid, allocate another page for the dir, else the process misbehaved.
++    if(myproc()->stackgap <= rcr2() && myproc()->sz >= rcr2()){
++        allocuvm(myproc()->pgdir, PGROUNDDOWN(rcr2()), PGROUNDUP(rcr2()));
++    }
++    else {
++      cprintf("pid %d %s: trap %d err %d on cpu %d "
++              "eip 0x%x addr 0x%x--kill proc\n",
++              myproc()->pid, myproc()->name, tf->trapno,
++              tf->err, cpuid(), tf->eip, rcr2());
++      myproc()->killed = 1;
++    }
+   }
+ 
+   // Force process exit if it has been killed and is in user space.
+@@ -103,7 +110,7 @@ trap(struct trapframe *tf)
+   // Force process to give up CPU on clock tick.
+   // If interrupts were on while locks held, would need to check nlock.
+   if(myproc() && myproc()->state == RUNNING &&
+-     tf->trapno == T_IRQ0+IRQ_TIMER)
++     tf->trapno == T_IRQ0+IRQ_TIMER && myproc()->remainingticks-- == 0)
+     yield();
+ 
+   // Check if the process has been killed since we yielded
+diff --color -rupN xv6-unrc/user/consumer.c xv6-borda-guevara/user/consumer.c
+--- xv6-unrc/user/consumer.c	1969-12-31 21:00:00.000000000 -0300
++++ xv6-borda-guevara/user/consumer.c	2021-06-17 11:05:50.298899976 -0300
+@@ -0,0 +1,45 @@
++#include "types.h"
++#include "stat.h"
++#include "user.h"
++#include "fcntl.h"
++int
++main(void)
++{
++
++  int sd[3];
++  sd[0] = semget(1,0); // consumer sem
++  sd[1] = semget(2,20); // producer sem
++  sd[2] = semget(3,1); // mutex sem
++  int fd = open("test.txt",0);
++  if (fd < 0) {
++    fd = open("test.txt", O_CREATE | O_WRONLY);
++    printf(fd,"0");
++    close(fd);
++  }
++  else {
++    close(fd);
++  }
++  
++  char* buf = sbrk(5);
++  int n;
++
++  for (int i = 0; i < 12; i++) {
++    semdown(sd[0]);
++    semdown(sd[2]);
++    fd = open("test.txt", O_RDONLY);
++    read(fd, buf, 3);
++    n = atoi(buf);
++    n--;
++    close(fd);
++    fd = open("test.txt", O_CREATE | O_WRONLY);
++    printf(fd, "%d", n);
++    close(fd);
++    semup(sd[1]);
++    sleep(5); //consumer time
++    semup(sd[2]);
++  }
++  for (int i=0; i < 3; i++)
++    semclose(sd[i]);
++
++  return 0;
++}
+diff --color -rupN xv6-unrc/user/forkagingtest.c xv6-borda-guevara/user/forkagingtest.c
+--- xv6-unrc/user/forkagingtest.c	1969-12-31 21:00:00.000000000 -0300
++++ xv6-borda-guevara/user/forkagingtest.c	2021-06-03 09:06:52.832230914 -0300
+@@ -0,0 +1,53 @@
++// Test that fork fails gracefully.
++// Tiny executable so that the limit can be filling the proc table.
++
++#include "types.h"
++#include "stat.h"
++#include "user.h"
++
++#define N  1000
++
++
++
++void
++forkagingtest(void)
++{
++  int n, pid;
++  
++    
++  printf(1, "fork aging test\n");
++  n = fork();
++  if (n) {
++    pid = fork();
++    if (pid) {
++      set_priority(3);
++      sleep(10);
++      set_priority(3);
++      printf(1, "fork aging test OK\n");
++      kill(n);
++      kill(pid);
++      wait();
++      wait();
++      exit();
++    }
++    else {
++      set_priority(0);
++      for (;;) {
++        set_priority(0);
++      }
++    }
++  }
++  else {
++    set_priority(0);
++    for (;;) {
++      set_priority(0);
++    }
++  } 
++}
++
++int
++main(void)
++{
++  forkagingtest();
++  exit();
++}
+diff --color -rupN xv6-unrc/user/param.h xv6-borda-guevara/user/param.h
+--- xv6-unrc/user/param.h	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/user/param.h	2021-06-17 12:21:04.288112014 -0300
+@@ -2,6 +2,8 @@
+ #define KSTACKSIZE 4096  // size of per-process kernel stack
+ #define NCPU          8  // maximum number of CPUs
+ #define NOFILE       16  // open files per process
++#define NSEM        128  // maximum number of semaphores in the system
++#define NOSEM        16  // maximun number of semaphores in a process
+ #define NFILE       100  // open files per system
+ #define NINODE       50  // maximum number of active i-nodes
+ #define NDEV         10  // maximum major device number
+@@ -11,4 +13,7 @@
+ #define LOGSIZE      (MAXOPBLOCKS*3)  // max data blocks in on-disk log
+ #define NBUF         (MAXOPBLOCKS*3)  // size of disk block cache
+ #define FSSIZE       1000  // size of file system in blocks
+-
++#define MLFLEVELS    4  // levels of the mlf
++#define OLDTICKS     10 // all process with more ticks than this in runnable, is considered old
++#define AGEPOLICY    100 // period between the aging function launching
++#define STACKPGS     128 // maximun number of pages to the stack of a process.
+diff --color -rupN xv6-unrc/user/producer.c xv6-borda-guevara/user/producer.c
+--- xv6-unrc/user/producer.c	1969-12-31 21:00:00.000000000 -0300
++++ xv6-borda-guevara/user/producer.c	2021-06-17 11:06:20.590132524 -0300
+@@ -0,0 +1,46 @@
++#include "types.h"
++#include "stat.h"
++#include "user.h"
++#include "fcntl.h"
++int
++main(void)
++{
++  int sd[3];
++  sd[0] = semget(1,0); // consumer sem
++  sd[1] = semget(2,20); // producer sem
++  sd[2] = semget(3,1); // mutex sem
++
++  int fd = open("test.txt",0);
++  if (fd < 0) {
++    fd = open("test.txt", O_CREATE | O_WRONLY);
++    printf(fd,"0");
++    close(fd);
++  }
++  else {
++    close(fd);
++  }
++  
++  char* buf = sbrk(5);
++  int n;
++
++  for (int i = 0; i < 17; i++) {
++    sleep(5);  // production time
++    semdown(sd[1]); // produce
++    semdown(sd[2]);
++    fd = open("test.txt", O_RDONLY);
++    read(fd, buf, 3);
++    n = atoi(buf);
++    n++;
++    close(fd);
++    fd = open("test.txt", O_CREATE | O_WRONLY);
++    printf(fd, "%d", n);
++    close(fd);
++    semup(sd[0]);
++    semup(sd[2]);
++  }
++
++  for (int i=0; i < 3; i++)
++    semclose(sd[i]);
++
++  return 0;
++}
+diff --color -rupN xv6-unrc/user/stacktest.c xv6-borda-guevara/user/stacktest.c
+--- xv6-unrc/user/stacktest.c	1969-12-31 21:00:00.000000000 -0300
++++ xv6-borda-guevara/user/stacktest.c	2021-06-18 01:41:14.387293243 -0300
+@@ -0,0 +1,18 @@
++#include "types.h"
++#include "stat.h"
++#include "user.h"
++#include "fcntl.h"
++
++int stacktest(int i) {
++  if (i< 1000) {
++  stacktest(i+1);
++  }
++  return 0;
++}
++
++int main() {
++  printf(1, "stack test\n");
++  stacktest(0);
++  printf(1, "stack test OK\n");
++  return 0;
++}
+diff --color -rupN xv6-unrc/user/stressfs.c xv6-borda-guevara/user/stressfs.c
+--- xv6-unrc/user/stressfs.c	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/user/stressfs.c	2021-06-03 09:06:52.836230913 -0300
+@@ -23,10 +23,12 @@ main(int argc, char *argv[])
+   printf(1, "stressfs starting\n");
+   memset(data, 'a', sizeof(data));
+ 
+-  for(i = 0; i < 4; i++)
++  for(i = 0; i < 4; i++){
+     if(fork() > 0)
+       break;
+-
++    int res = set_priority(i);
++    printf(1,"Result syscall %d : %d\n", i, res);
++  }
+   printf(1, "write %d\n", i);
+ 
+   path[8] += i;
+diff --color -rupN xv6-unrc/user/syscall.h xv6-borda-guevara/user/syscall.h
+--- xv6-unrc/user/syscall.h	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/user/syscall.h	2021-06-03 09:06:21.644242272 -0300
+@@ -20,3 +20,8 @@
+ #define SYS_link   19
+ #define SYS_mkdir  20
+ #define SYS_close  21
++#define SYS_set_priority 22
++#define SYS_semget 23
++#define SYS_semclose 24
++#define SYS_semup 25
++#define SYS_semdown 26
+diff --color -rupN xv6-unrc/user/ulib.c xv6-borda-guevara/user/ulib.c
+--- xv6-unrc/user/ulib.c	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/user/ulib.c	2021-06-03 11:36:07.631143738 -0300
+@@ -104,3 +104,11 @@ memmove(void *vdst, const void *vsrc, in
+     *dst++ = *src++;
+   return vdst;
+ }
++
++void
++_start(int argc, char** argv)
++{
++  extern int main(int, char**);
++  main(argc, argv);
++  exit();
++}
+diff --color -rupN xv6-unrc/user/user.h xv6-borda-guevara/user/user.h
+--- xv6-unrc/user/user.h	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/user/user.h	2021-06-03 11:31:00.081135913 -0300
+@@ -23,6 +23,11 @@ int getpid(void);
+ char* sbrk(int);
+ int sleep(int);
+ int uptime(void);
++int set_priority(int);
++int semget(int, int);
++int semclose(int);
++int semup(int);
++int semdown(int);
+ 
+ // ulib.c
+ int stat(const char*, struct stat*);
+@@ -37,3 +42,4 @@ void* memset(void*, int, uint);
+ void* malloc(uint);
+ void free(void*);
+ int atoi(const char*);
++void _start(int argc, char** argv);
+diff --color -rupN xv6-unrc/user/usys.S xv6-borda-guevara/user/usys.S
+--- xv6-unrc/user/usys.S	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/user/usys.S	2021-06-03 09:06:21.648242269 -0300
+@@ -29,3 +29,8 @@ SYSCALL(getpid)
+ SYSCALL(sbrk)
+ SYSCALL(sleep)
+ SYSCALL(uptime)
++SYSCALL(set_priority)
++SYSCALL(semget)
++SYSCALL(semclose)
++SYSCALL(semup)
++SYSCALL(semdown)
+diff --color -rupN xv6-unrc/user/x86.h xv6-borda-guevara/user/x86.h
+--- xv6-unrc/user/x86.h	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/user/x86.h	2021-06-03 09:06:52.840230914 -0300
+@@ -144,6 +144,12 @@ lcr3(uint val)
+   asm volatile("movl %0,%%cr3" : : "r" (val));
+ }
+ 
++static inline void
++halt()
++{
++  asm volatile("hlt");
++}
++
+ //PAGEBREAK: 36
+ // Layout of the trap frame built on the stack by the
+ // hardware and by trapasm.S, and passed to trap().
+diff --color -rupN xv6-unrc/vm.c xv6-borda-guevara/vm.c
+--- xv6-unrc/vm.c	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/vm.c	2021-06-17 11:15:52.159562862 -0300
+@@ -326,7 +326,7 @@ copyuvm(pde_t *pgdir, uint sz)
+     if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
+       panic("copyuvm: pte should exist");
+     if(!(*pte & PTE_P))
+-      panic("copyuvm: page not present");
++      continue;
+     pa = PTE_ADDR(*pte);
+     flags = PTE_FLAGS(*pte);
+     if((mem = kalloc()) == 0)
+diff --color -rupN xv6-unrc/x86.h xv6-borda-guevara/x86.h
+--- xv6-unrc/x86.h	2019-03-29 19:03:20.000000000 -0300
++++ xv6-borda-guevara/x86.h	2021-06-03 09:06:52.840230914 -0300
+@@ -144,6 +144,12 @@ lcr3(uint val)
+   asm volatile("movl %0,%%cr3" : : "r" (val));
+ }
+ 
++static inline void
++halt()
++{
++  asm volatile("hlt");
++}
++
+ //PAGEBREAK: 36
+ // Layout of the trap frame built on the stack by the
+ // hardware and by trapasm.S, and passed to trap().

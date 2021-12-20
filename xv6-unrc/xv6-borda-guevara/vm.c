@@ -310,6 +310,53 @@ clearpteu(pde_t *pgdir, char *uva)
   *pte &= ~PTE_U;
 }
 
+// Clear PTE_W on a page. Used to create an read-only page
+// in user space
+void
+clearptew(pde_t *pgdir, char *uva)
+{
+  pte_t *pte;
+  
+  pte = walkpgdir(pgdir, uva, 0);
+  if(pte ==0)
+    panic("clearptew");
+  *pte &= ~PTE_W;
+}
+
+// Set PTE_W on a page. Used to make a read-only user page into
+// a normal page
+void
+setptew(pde_t *pgdir, char *uva)
+{
+  pte_t *pte;
+  
+  pte = walkpgdir(pgdir, uva, 0);
+  if(pte ==0)
+    panic("clearptew");
+  *pte |= PTE_W;
+}
+// Determines if a page is present in pde_t in
+// address uva
+int
+ispagepresent(pde_t *pgdir, char *uva)
+{
+  pte_t *pte;
+  
+  pte = walkpgdir(pgdir, uva, 1);
+  return (*pte & PTE_P);
+}
+
+// Determines if a page is writable in pde_t in
+// address uva
+int
+ispagewritable(pde_t *pgdir, char *uva)
+{
+  pte_t *pte;
+  
+  pte = walkpgdir(pgdir, uva, 1);
+  return (*pte & PTE_W);
+}
+
 // Given a parent process's page table, create a copy
 // of it for a child.
 pde_t*

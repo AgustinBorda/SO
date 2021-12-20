@@ -29,6 +29,7 @@ int semclose(int);
 int semup(int);
 int semdown(int);
 int mmap(int);
+int munmap(char*);
 
 // ulib.c
 int stat(const char*, struct stat*);

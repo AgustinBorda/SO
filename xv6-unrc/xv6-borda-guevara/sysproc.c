@@ -151,3 +151,13 @@ sys_mmap(void)
   return mmap(fd);
 }
 
+int
+sys_munmap(void)
+{
+  int addr;
+  
+  argint(0, &addr);
+
+  return munmap((char*) addr);
+}
+

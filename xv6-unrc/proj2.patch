@@ -1,0 +1,293 @@
+diff --color initialxv6/defs.h xv6-unrc/defs.h
+110a111
+> int             set_priority(int);
+114a116
+> void            mlfdump(void);
+diff --color initialxv6/Makefile xv6-unrc/Makefile
+173a174
+> 	_forkagingtest\
+diff --color initialxv6/param.h xv6-unrc/param.h
+14c14,16
+< 
+---
+> #define MLFLEVELS    4  // levels of the mlf
+> #define OLDTICKS     10 // all process with more ticks than this in runnable, is considered old
+> #define AGEPOLICY    100 // period between the aging function launching
+diff --color initialxv6/proc.c xv6-unrc/proc.c
+8a9,18
+> // Define if a queue is empty
+> #define isempty(queue) (queue)->head == 0
+> // Define if a process is old
+> #define isold(proc) ((ticks - ((proc) -> timerunnable)) >= OLDTICKS)
+> 
+> // MLF level structure
+> struct queue {
+>   struct proc* head;
+>   struct proc* last;
+> };
+9a20,67
+> // Make a given process runnable and enqueues in
+> // a level of the MLF
+> void
+> makerunnable(struct queue* level, struct proc* proc)
+> { 
+>   proc->timerunnable = ticks;
+>   proc->state = RUNNABLE;
+> 
+>   if (isempty(level)) {
+>     level->head = proc;
+>     level->last = proc; 
+>   }
+>   else {
+>     (level->last)->next = proc;
+>     level->last = proc;   
+>   }
+>   proc->next = 0; 
+> }
+> 
+> 
+> // Dequeues a element of a given level
+> // of the MLF, must be called with a
+> // non-empty queue.
+> struct proc*
+> dequeue(struct queue* level)
+> {
+>   if (isempty(level)) {
+>     panic("attempted to get a process from empty queue\n");
+>   }
+>   else {
+>     struct proc* p = level->head;
+>     level->head = p -> next;
+>     p->next = 0;
+>     // If the next process of the head is 0 (null)
+>     // the queue has only 1 element
+>     if (level->head == 0)
+>       level->last = 0;
+>     if (p->state != RUNNABLE){
+>       mlfdump();
+>       panic("non-runnable process in the queues\n");
+>     }
+>     return p;
+>   }
+>   return 0;
+> }
+> 
+> 
+> // MLF
+12a71
+>   struct queue level[MLFLEVELS];
+14a74,123
+> void
+> elevateoldprocess(struct proc* prev, struct proc* p)
+> {
+>   prev->next = p->next;
+>   if (p->level > 0)
+>     p->level--;
+>   makerunnable(&ptable.level[p->level], p);
+> }
+> 
+> 
+> // Identifies all the old process in a level
+> // and moves them to a bigger level of priority
+> void
+> agelevel(struct queue* level)
+> {
+>   if (isempty(level))
+>     return;
+> 
+>   struct proc* proc = level -> head;
+> 
+>   while (isold(proc) && !isempty(level)) {
+>     proc = dequeue(level);
+>     if (proc->level > 0)
+>       proc->level--;
+>     makerunnable(&ptable.level[proc->level], proc);
+>   }
+>   
+>   if (!isempty(level)) {
+>     while (proc->next) {
+>       if (isold(proc->next)) {
+>         elevateoldprocess(proc, proc->next);
+>       }
+>       else {
+>         proc = proc->next;
+>       }
+>     }
+>     level->last = proc;
+>   }
+> }
+> 
+> // Ages all the levels of the MLF
+> void
+> agingmlf() 
+> {
+>   for (ushort i = 1; i < MLFLEVELS; i++){
+>     agelevel(&ptable.level[i]);
+>   }
+> }
+> 
+> 
+90a200
+>   p->level = 0;
+127d236
+<   
+128a238
+>   p -> level = 0;
+151c261
+<   p->state = RUNNABLE;
+---
+>   makerunnable(&ptable.level[p->level], p);
+217c327,328
+<   np->state = RUNNABLE;
+---
+>   np->level = curproc->level;
+>   makerunnable(&ptable.level[np->level], np);
+325d435
+<   struct proc *p;
+328d437
+<   
+331c440
+<     sti();
+---
+>     sti(); 
+333c442
+<     // Loop over process table looking for process to run.
+---
+>     // Loops over the levels of the MLF
+335,336c444,448
+<     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+<       if(p->state != RUNNABLE)
+---
+>     if (ticks % AGEPOLICY == 0)
+>       agingmlf();
+>     for (ushort i = 0; i < MLFLEVELS; i++){
+>       
+>       if (isempty(&ptable.level[i])) 
+338c450
+< 
+---
+>       struct proc* p = dequeue(&ptable.level[i]);
+342a455
+>       p->remainingticks = (p->level)+1;
+345c458,459
+< 
+---
+>       
+>       // Black hole
+351a466
+>       break;
+354d468
+< 
+389c503,508
+<   myproc()->state = RUNNABLE;
+---
+>   // As the process used all of his quantum,
+>   // increases his priority, if already in
+>   // max priority, stays were it is.
+>   if (myproc()->level < MLFLEVELS-1)
+>     (myproc()->level)++;
+>   makerunnable(&ptable.level[myproc()->level], myproc());
+463,464c582,587
+<     if(p->state == SLEEPING && p->chan == chan)
+<       p->state = RUNNABLE;
+---
+>     if(p->state == SLEEPING && p->chan == chan){
+>       if(p->level > 0)  
+>         p->level--;
+>       makerunnable(&ptable.level[p ->level], p);
+>     }
+>       
+489,490c612,615
+<       if(p->state == SLEEPING)
+<         p->state = RUNNABLE;
+---
+>       if(p->state == SLEEPING) {
+>         p->level = 0;
+>         makerunnable(&ptable.level[p -> level], p);
+>       }
+498a624,633
+> int
+> set_priority(int priority)
+> {
+>   if(priority >= 0 && priority < MLFLEVELS) {
+>     myproc()->level = priority;
+>     return 0;
+>   }
+>   return -1;
+> }
+> 
+526c661
+<     cprintf("%d %s %s", p->pid, state, p->name);
+---
+>     cprintf("%d %s %s %d", p->pid, state, p->name, p->level);
+534a670,696
+> 
+> 
+> void
+> mlfdump()
+> {
+>   static char *states[] = {
+>   [UNUSED]    "unused",
+>   [EMBRYO]    "embryo",
+>   [SLEEPING]  "sleep ",
+>   [RUNNABLE]  "runble",
+>   [RUNNING]   "run   ",
+>   [ZOMBIE]    "zombie"
+>   };
+>   int i;
+>   for(i=0; i<MLFLEVELS; i++){
+>     cprintf("Level: %d\n", i);
+>     struct proc* curr = ptable.level[i].head;
+>     while(curr->next) {
+>       cprintf("PID: %d, STATE: %s, NAME: %s", curr->pid, states[curr->state], curr->name);
+>       curr = curr->next;
+>     }
+>     cprintf("\n");
+>   }
+> }
+>  
+> 
+> 
+diff --color initialxv6/proc.h xv6-unrc/proc.h
+38a39,42
+>   ushort remainingticks;       // Remaining ticks of this process in cpu (if in cpu)
+>   ushort level;                // The level of the process in MLF
+>   uint timerunnable;           // Time when the process became runnable
+>   struct proc *next;           // Next process in MLF
+diff --color initialxv6/spinlock.c xv6-unrc/spinlock.c
+28c28
+<   if(holding(lk))
+---
+>   if(holding(lk)) 
+diff --color initialxv6/syscall.c xv6-unrc/syscall.c
+105a106
+> extern int sys_set_priority(void);
+128a130
+> [SYS_set_priority] sys_set_priority,
+diff --color initialxv6/syscall.h xv6-unrc/syscall.h
+22a23
+> #define SYS_set_priority 22
+diff --color initialxv6/sysproc.c xv6-unrc/sysproc.c
+91a92,99
+> 
+> int
+> sys_set_priority(void) 
+> {
+>   int priority;
+>   argint(0,&priority);
+>   return set_priority(priority);
+> }
+diff --color initialxv6/trap.c xv6-unrc/trap.c
+106c106
+<      tf->trapno == T_IRQ0+IRQ_TIMER)
+---
+>      tf->trapno == T_IRQ0+IRQ_TIMER && myproc()->remainingticks-- == 0)
+Common subdirectories: initialxv6/user and xv6-unrc/user
+diff --color initialxv6/x86.h xv6-unrc/x86.h
+146a147,152
+> static inline void
+> halt()
+> {
+>   asm volatile("hlt");
+> }
+> 

@@ -7,14 +7,12 @@
 #include "x86.h"
 #include "traps.h"
 #include "spinlock.h"
-#include "mmap.h"
+#include "fmap.h"
+#include "sleeplock.h"
 #include "fs.h"
+#include "file.h"
 
-// Defines if a value (val) is between a base address and
-// an offset.
-#define between(base, off, val) ((val >= base) && (val < base + off))
-
-#define min(a, b) ((a>=b) ? a : b)
+#define min(a, b) ((a<=b) ? a : b)
 
 // Interrupt descriptor table (shared by all CPUs).
 struct gatedesc idt[256];
@@ -38,6 +36,16 @@ void
 idtinit(void)
 {
   lidt(idt, sizeof(idt));
+}
+
+void
+killproc(struct trapframe *tf)
+{
+  cprintf("pid %d %s: trap %d err %d on cpu %d "
+          "eip 0x%x addr 0x%x--kill proc\n",
+           myproc()->pid, myproc()->name, tf->trapno,
+           tf->err, cpuid(), tf->eip, rcr2());
+  myproc()->killed=1;
 }
 
 //PAGEBREAK: 41
@@ -97,30 +105,51 @@ trap(struct trapframe *tf)
     // In user space, check if the direction that fired the 
     // page fault is valid (between the gap and the size of the process).
     // If its valid, allocate another page for the dir, else the process misbehaved.
-    if(myproc()->stackgap <= rcr2() && myproc()->sz >= rcr2()){
-        allocuvm(myproc()->pgdir, PGROUNDDOWN(rcr2()), PGROUNDUP(rcr2()));
+    if(myproc()->stackgap <= rcr2() && myproc()->sz >= rcr2()) {
+  
+      // If the page isn't present, allocate it,
+      // else the fault was happened because the page is read only or the process
+      // misbehabed 
+      if(!ispagepresent(myproc()->pgdir, (char*)PGROUNDDOWN(rcr2()))) {
+        allocuvm(myproc()->pgdir, PGROUNDDOWN(rcr2()), PGROUNDDOWN(rcr2()+PGSIZE));
+      
+        // If the fault occured in addresses greater than the bottom of the stack
+        // check if the fault occurred in the range of a fmap of the process
+        // if so, allocate a a page and loads it  with the information of the mapped file
+        // else, the process misbehaved. 
         if(rcr2() > myproc()->stackbase) {
-          uint i = 0;
-          while(i < NOMMAP && !between(myproc()->ommap[i]->baseaddr, myproc()->ommap[i]->size, rcr2()))
-            i++;
+          
+          int i = seek(rcr2(), myproc());
 
-
-          if(i == NOMMAP)
-            myproc()->killed = 1;
-
-
-          uint dest = PGROUNDUP(rcr2());
-          uint off = PGROUNDUP(rcr2()) - myproc()->ommap[i]->baseaddr;
-          uint n = min(PGSIZE, myproc()->ommap[i]->size - off);
-          readi(myproc()->ommap[i]->ip, (char*) dest, off, n);
+          if(i >= 0) {
+            char *dest = (char*) PGROUNDDOWN(rcr2());
+            uint off = PGROUNDDOWN(rcr2()) - myproc()->ofmap[i]->baseaddr;
+            uint n = min(PGSIZE, myproc()->ofmap[i]->size - off);
+            ilock(myproc()->ofmap[i]->ip);
+            readi(myproc()->ofmap[i]->ip, dest, off, n); 
+            iunlock(myproc()->ofmap[i]->ip); 
+            // Make the page read-only, this is to 
+            // use the PTE_W bit as a dirty flag
+            clearptew(myproc()->pgdir, (char*)PGROUNDDOWN(rcr2()));
+          }
+          else {
+            killproc(tf);
+          }
         }
+      }
+      else {
+        // If the page is in user space, is present and caused
+        // a page-fault, must be a read only page being written.
+        // If is in a fmap address, make the page writable,
+        // else, the process misbehaved.
+        if(rcr2() > myproc()->stackbase && seek(rcr2(), myproc()))
+          setptew(myproc()->pgdir, (char*) PGROUNDDOWN(rcr2()));
+        else
+          killproc(tf);
+      }
     }
     else {
-      cprintf("pid %d %s: trap %d err %d on cpu %d "
-              "eip 0x%x addr 0x%x--kill proc\n",
-              myproc()->pid, myproc()->name, tf->trapno,
-              tf->err, cpuid(), tf->eip, rcr2());
-      myproc()->killed = 1;
+      killproc(tf);
     }
   }
 

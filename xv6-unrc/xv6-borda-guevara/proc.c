@@ -5,6 +5,7 @@
 #include "mmu.h"
 #include "x86.h"
 #include "proc.h"
+#include "fmap.h"
 #include "spinlock.h"
 // Define if a queue is empty
 #define isempty(queue) (queue)->head == 0
@@ -356,6 +357,12 @@ exit(void)
   for (fd = 0; fd < NOSEM; fd++){
     if(curproc->osem[fd]) {
       semclose(fd);
+    }
+  }
+  // Unmap all mapped files
+  for (fd = 0; fd < NOFMAP; fd++){
+    if(curproc->ofmap[fd]) {
+      munmap((char*)curproc->ofmap[fd]->baseaddr);
     }
   }
 

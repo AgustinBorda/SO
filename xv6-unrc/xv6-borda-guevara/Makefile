@@ -3,6 +3,7 @@ OBJS = \
 	console.o\
 	exec.o\
 	file.o\
+  fmap.o\
 	fs.o\
 	ide.o\
 	ioapic.o\
@@ -15,7 +16,6 @@ OBJS = \
 	picirq.o\
 	pipe.o\
 	proc.o\
-  mmap.o\
   sem.o\
 	sleeplock.o\
 	spinlock.o\
@@ -181,6 +181,7 @@ UPROGS=\
 	_ln\
 	_ls\
 	_mkdir\
+  _mmaptest\
   _producer\
 	_rm\
 	_sh\

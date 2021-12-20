@@ -4,7 +4,8 @@
 #define NOFILE       16  // open files per process
 #define NSEM        128  // maximum number of semaphores in the system
 #define NOSEM        16  // maximum number of semaphores in a process
-#define NOMMAP        8  // maximum number of files mapped in memory in a process
+#define NFMAP       100  // maximum number of file maps in the system
+#define NOFMAP       16  // maximum number of file maps per process
 #define NFILE       100  // open files per system
 #define NINODE       50  // maximum number of active i-nodes
 #define NDEV         10  // maximum major device number

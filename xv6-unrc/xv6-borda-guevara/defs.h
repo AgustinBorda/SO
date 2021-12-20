@@ -188,6 +188,10 @@ void            switchuvm(struct proc*);
 void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);
 void            clearpteu(pde_t *pgdir, char *uva);
+void            clearptew(pde_t *pgdir, char *uva);
+void            setptew(pde_t *pgdir, char *uva);
+int             ispagepresent(pde_t *pgdir, char *uva);
+int             ispagewritable(pde_t *pgdir, char *uva);
 
 // semaphore.c
 int             semget(int key, int init_value);
@@ -197,6 +201,8 @@ int             semup(int semid);
 
 // mmap.c
 int             mmap(int fd);
+int             seek(uint addr, struct proc *p);
+int             munmap(char *addr);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

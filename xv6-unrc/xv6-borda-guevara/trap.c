@@ -120,14 +120,13 @@ trap(struct trapframe *tf)
         if(rcr2() > myproc()->stackbase) {
           
           int i = seek(rcr2(), myproc());
-
           if(i >= 0) {
             char *dest = (char*) PGROUNDDOWN(rcr2());
-            uint off = PGROUNDDOWN(rcr2()) - myproc()->ofmap[i]->baseaddr;
-            uint n = min(PGSIZE, myproc()->ofmap[i]->size - off);
-            ilock(myproc()->ofmap[i]->ip);
-            readi(myproc()->ofmap[i]->ip, dest, off, n); 
-            iunlock(myproc()->ofmap[i]->ip); 
+            uint off = PGROUNDDOWN(rcr2()) - myproc()->ofmap[i].baseaddr;
+            uint n = min(PGSIZE, myproc()->ofmap[i].size - off);
+            ilock(myproc()->ofmap[i].f->ip);
+            readi(myproc()->ofmap[i].f->ip, dest, off, n); 
+            iunlock(myproc()->ofmap[i].f->ip);
             // Make the page read-only, this is to 
             // use the PTE_W bit as a dirty flag
             clearptew(myproc()->pgdir, (char*)PGROUNDDOWN(rcr2()));
@@ -142,7 +141,7 @@ trap(struct trapframe *tf)
         // a page-fault, must be a read only page being written.
         // If is in a fmap address, make the page writable,
         // else, the process misbehaved.
-        if(rcr2() > myproc()->stackbase && seek(rcr2(), myproc()))
+        if(rcr2() > myproc()->stackbase && seek(rcr2(), myproc()) >=0 )
           setptew(myproc()->pgdir, (char*) PGROUNDDOWN(rcr2()));
         else
           killproc(tf);

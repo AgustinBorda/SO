@@ -203,6 +203,7 @@ int             semup(int semid);
 int             mmap(int fd);
 int             seek(uint addr, struct proc *p);
 int             munmap(char *addr);
+struct fmap     fmapdup(struct fmap fm);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

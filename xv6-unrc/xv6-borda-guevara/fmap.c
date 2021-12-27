@@ -16,43 +16,24 @@
 // an offset.
 #define between(base, off, val) ((val >= base) && (val < base + off))
 
+#define inemptyfile(base, off, val) ((val==base) && (off == 0))
+
 // Min of two values
 #define min(a, b) ((a<=b) ? a : b)
-
-// System fmap table.
-struct {
-  struct spinlock lock;
-  struct fmap fmaps[NFMAP];
-} fmaptable;
 
 // Returns the index of a requested fmap
 int
 seek(uint addr, struct proc *p)
 {
   int i = 0;
-  while(i < NOFMAP && (!p->ofmap[i] || (p->ofmap[i] && !between(p->ofmap[i]->baseaddr, p->ofmap[i]->size, addr))))
+  while(i < NOFMAP && (!p->ofmap[i].present || (p->ofmap[i].present && 
+      (!between(p->ofmap[i].baseaddr, p->ofmap[i].size, addr) && !inemptyfile(p->ofmap[i].baseaddr, p->ofmap[i].size, addr))))){
     i++;
+  }
 
   if(i == NOFMAP)
     return -1;
-
   return i;
-}
-
-// Allocate the fmap into the ofmap array
-int 
-allocfmap(struct proc *p, struct fmap *fm)
-{
-  uint i = 0;
-  while(i<NOFMAP && p->ofmap[i])
-    i++;
-  
-  if(i == NOFMAP)
-    return -1;
-
-  p->ofmap[i] = fm;
- 
-  return p->ofmap[i]->baseaddr;
 }
 
 // Creates a fmap
@@ -62,26 +43,36 @@ createfmap(struct file *f, uint baseaddr, uint endaddr)
   struct fmap fm;
   fm.baseaddr = baseaddr;
   fm.size = endaddr - baseaddr;
-  fm.readable = f->readable;
-  fm.writable = f->writable;
-  fm.ip = f->ip;
+  fm.f = f;
+  f->ref++; //The fmap have a reference of the file, so increment the file refcount
   fm.present = 1;
   return fm;
 }
 
-// Maps a file into memory, caller
-// must hold fmaptable.lock
-int static 
-mmap1(int fd)
+// Duplicates a fmap
+struct fmap
+fmapdup(struct fmap fm)
+{
+  struct fmap fmdup;
+  fmdup.baseaddr = fm.baseaddr;
+  fmdup.size = fm.size;
+  fmdup.f = fm.f;
+  fmdup.f->ref++;
+  fmdup.present = fm.present;
+  return fmdup;
+}
+// Maps a file into memory
+int 
+mmap(int fd)
 {
   struct proc *p = myproc();
   struct file *f = p->ofile[fd];
   if (f->type == FD_INODE && f->readable) {
     uint i = 0;
-    while(i < NFMAP && fmaptable.fmaps[i].present)
+    while(i < NOFMAP && p->ofmap[i].present)
       i++;
   
-    if(i == NFMAP)
+    if(i == NOFMAP)
       return -1;
 
     
@@ -89,42 +80,32 @@ mmap1(int fd)
     filestat(f, &fs);
     uint baseaddr = PGROUNDDOWN(p->sz) + PGSIZE;
     p->sz = baseaddr + fs.size;
-    struct fmap *fm = &(fmaptable.fmaps[i]);
+    struct fmap *fm = &(p->ofmap[i]);
     *fm = createfmap(f, baseaddr, p->sz);
 
     // Reserve all the page, making possible
     // a efficient unmapping
     p->sz = PGROUNDDOWN(p->sz) + PGSIZE;    
 
-    return allocfmap(p, fm);
+    return baseaddr;
 
   }
   return -1;
 }
 
-// Calls mmap1 holding the locks
-int
-mmap(int fd)
-{
-  acquire(&fmaptable.lock);
-  int res = mmap1(fd); 
-  release(&fmaptable.lock);
-  return res;
-}
-
 // Updates the dirty pages to the mapped file
 void static
-syncfmap(struct fmap *fm, struct proc *p)
+syncfmap(struct fmap fm, struct proc *p)
 {
-  uint i = fm->baseaddr;
-  uint endaddr = fm->baseaddr + fm->size;
+  uint i = fm.baseaddr;
+  uint endaddr = fm.baseaddr + fm.size;
   while(i < endaddr) {
-    uint off = min(PGSIZE, (endaddr - fm->baseaddr)- PGROUNDDOWN(i));
-    if(ispagewritable(p->pgdir, (char*) i)) {
+    uint off = min(PGSIZE, (endaddr - fm.baseaddr)- PGROUNDDOWN(i));
+   if(ispagewritable(p->pgdir, (char*) i)) {
       begin_op();
-      ilock(fm->ip);
-      writei(fm->ip, (char*) PGROUNDDOWN(i), i-fm->baseaddr, off);
-      iunlock(fm->ip);
+      ilock(fm.f->ip);
+      writei(fm.f->ip, (char*) PGROUNDDOWN(i), i-fm.baseaddr, off);
+      iunlock(fm.f->ip);
       end_op();
     }
     i += off;
@@ -141,15 +122,15 @@ munmap(char *addr)
   int i = seek((uint) addr, p);
   if(i >= 0) {
 
-    if(p->ofmap[i]->writable)
+    if(p->ofmap[i].f->writable)
       syncfmap(p->ofmap[i], p);
 
-    deallocuvm(p->pgdir, p->ofmap[i]->baseaddr, p->ofmap[i]->baseaddr + p->ofmap[i]->size);  
-
-    acquire(&fmaptable.lock);
-    p->ofmap[i]->present = 0;
-    release(&fmaptable.lock);
-    p->ofmap[i] = 0;
+    deallocuvm(p->pgdir, p->ofmap[i].baseaddr, p->ofmap[i].baseaddr + p->ofmap[i].size);  
+    p->ofmap[i].present = 0;
+    // Removes the file reference
+    fileclose(p->ofmap[i].f);
+    p->ofmap[i].f = 0;
+    
 
     return 0;
   }

@@ -1,10 +1,11 @@
+#ifndef FMAP_H
+#define FMAP_H
 // descriptor of a in-memory
 // file map
 struct fmap {
   uint baseaddr;    // The address where the map begins
   uint size;        // The size of the mapped file
-  char readable;   
-  char writable;
+  struct file *f;   //The mapped file
   char present;
-  struct inode *ip; //Inode pointer
 };
+#endif

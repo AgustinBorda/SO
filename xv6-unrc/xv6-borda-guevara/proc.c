@@ -319,6 +319,10 @@ fork(void)
       np->ofile[i] = filedup(curproc->ofile[i]);
   np->cwd = idup(curproc->cwd);
 
+  for(i = 0; i < NOFMAP; i++)
+    if(curproc->ofmap[i].present)
+      np->ofmap[i] = fmapdup(curproc->ofmap[i]);
+
   safestrcpy(np->name, curproc->name, sizeof(curproc->name));
 
   pid = np->pid;
@@ -361,8 +365,8 @@ exit(void)
   }
   // Unmap all mapped files
   for (fd = 0; fd < NOFMAP; fd++){
-    if(curproc->ofmap[fd]) {
-      munmap((char*)curproc->ofmap[fd]->baseaddr);
+    if(curproc->ofmap[fd].present) {
+      munmap((char*)curproc->ofmap[fd].baseaddr);
     }
   }
 
